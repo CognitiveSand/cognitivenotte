@@ -286,9 +286,11 @@ def _transcribe_live(args: argparse.Namespace) -> int:
     sig_handler = SignalHandler()
     sig_handler.install()
 
-    # Audio settings
-    sample_rate = 16000
-    chunk_size = int(sample_rate * 0.1)  # 100ms blocks
+    # Audio settings - use device's native sample rate
+    device_sample_rate = int(device.sample_rate)
+    stt_sample_rate = 16000  # STT providers expect 16kHz
+    chunk_duration_s = 0.1  # 100ms blocks
+    chunk_size = int(device_sample_rate * chunk_duration_s)
 
     try:
         import sounddevice as sd
@@ -304,7 +306,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             debug_view = DebugView(
                 device=device,
                 reference_db=settings.debug.reference_db,
-                sample_rate=sample_rate,
+                sample_rate=device_sample_rate,
                 chunk_size=chunk_size,
             )
 
@@ -323,21 +325,50 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             if debug_view:
                 debug_view.update(audio_data=audio_data)  # type: ignore[arg-type]
 
-        # Create streaming orchestrator
+        # Create streaming orchestrator (expects 16kHz audio)
         orchestrator = create_streaming_transcriber(
             provider=provider,
-            sample_rate=sample_rate,
+            sample_rate=stt_sample_rate,
             callback=on_segment,
             audio_callback=on_audio if debug_view else None,
         )
 
-        # Create audio stream
+        # Resampler for converting device sample rate to STT sample rate
+        import numpy as np
+        from scipy import signal as scipy_signal
+
+        resample_ratio = stt_sample_rate / device_sample_rate
+
+        def audio_callback_with_resample(
+            indata: np.ndarray,
+            frames: int,
+            time_info: object,
+            status: object,
+        ) -> None:
+            """Resample audio and feed to orchestrator."""
+            if status:
+                pass  # Could log status
+
+            # Flatten to mono if needed
+            audio = indata[:, 0] if indata.ndim > 1 else indata.flatten()
+
+            # Resample to 16kHz if needed
+            if device_sample_rate != stt_sample_rate:
+                num_samples = int(len(audio) * resample_ratio)
+                audio_resampled = scipy_signal.resample(audio, num_samples).astype(np.float32)
+            else:
+                audio_resampled = audio
+
+            # Feed to orchestrator
+            orchestrator.feed_audio_callback(audio_resampled)
+
+        # Create audio stream at device's native sample rate
         stream = sd.InputStream(
-            samplerate=sample_rate,
+            samplerate=device_sample_rate,
             channels=1,
             dtype="float32",
             device=device.id,
-            callback=orchestrator.feed_audio_callback,
+            callback=audio_callback_with_resample,
             blocksize=chunk_size,
         )
 
