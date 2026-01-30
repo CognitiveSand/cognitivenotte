@@ -175,9 +175,19 @@ def _transcribe_file(args: argparse.Namespace) -> int:
             def on_progress(stage: str, pct: float) -> None:
                 progress.update(task_id, description=f"{stage}...")
 
+            # Handle device/model args
+            compute_device = getattr(args, "compute_device", "auto")
+            if compute_device == "auto":
+                compute_device = None
+            model_size = getattr(args, "model_size", "auto")
+            if model_size == "auto":
+                model_size = None
+
             result = transcribe_audio(
                 audio_path=audio_path,
                 provider=args.provider if hasattr(args, "provider") else None,
+                device=compute_device,
+                model_size=model_size,
                 enable_diarization=enable_diarization,
                 progress_callback=on_progress,
             )
@@ -431,6 +441,18 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["auto", "faster-whisper", "whisper-cpp"],
         default="auto",
         help="STT provider (default: auto)",
+    )
+    transcribe_parser.add_argument(
+        "--compute-device",
+        choices=["auto", "cuda", "cpu"],
+        default="auto",
+        help="Compute device for transcription (default: auto)",
+    )
+    transcribe_parser.add_argument(
+        "--model-size",
+        choices=["auto", "large-v3", "medium", "small", "tiny"],
+        default="auto",
+        help="Whisper model size (default: auto based on hardware)",
     )
     transcribe_parser.add_argument(
         "--device",

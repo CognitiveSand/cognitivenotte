@@ -25,9 +25,65 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str, float], None]
 
 
+def _get_configured_provider(
+    provider: str | None,
+    device: str | None,
+    model_size: str | None,
+) -> "STTProvider":
+    """Get a provider with optional device/model configuration.
+
+    Args:
+        provider: Provider name or None for auto.
+        device: Device ("cuda", "cpu") or None for auto.
+        model_size: Model size or None for auto.
+
+    Returns:
+        Configured STTProvider instance.
+    """
+    # If device or model_size specified, we need to configure the provider directly
+    if device is not None or model_size is not None:
+        # Determine which provider to use
+        if provider is None or provider == "auto":
+            # Try faster-whisper first, then whisper-cpp
+            try:
+                from conot.stt.providers.faster_whisper import FasterWhisperProvider
+
+                return FasterWhisperProvider(
+                    model_size=model_size or "auto",
+                    device=device or "auto",
+                )
+            except ImportError:
+                pass
+
+            try:
+                from conot.stt.providers.whisper_cpp import WhisperCppProvider
+
+                return WhisperCppProvider(model_size=model_size or "auto")
+            except ImportError:
+                pass
+
+        elif provider == "faster-whisper":
+            from conot.stt.providers.faster_whisper import FasterWhisperProvider
+
+            return FasterWhisperProvider(
+                model_size=model_size or "auto",
+                device=device or "auto",
+            )
+
+        elif provider == "whisper-cpp":
+            from conot.stt.providers.whisper_cpp import WhisperCppProvider
+
+            return WhisperCppProvider(model_size=model_size or "auto")
+
+    # Use registry for auto-selection
+    return get_provider(provider)
+
+
 def transcribe_audio(
     audio_path: Path | str,
     provider: str | None = None,
+    device: str | None = None,
+    model_size: str | None = None,
     enable_diarization: bool = True,
     huggingface_token: str | None = None,
     progress_callback: ProgressCallback | None = None,
@@ -43,6 +99,8 @@ def transcribe_audio(
     Args:
         audio_path: Path to the audio file to transcribe.
         provider: Provider name ("faster-whisper", "whisper-cpp") or None for auto.
+        device: Compute device ("cuda", "cpu") or None for auto.
+        model_size: Model size ("large-v3", "medium", "small", "tiny") or None for auto.
         enable_diarization: Whether to perform speaker diarization.
         huggingface_token: HuggingFace token for Pyannote (diarization).
         progress_callback: Callback for progress updates (stage, progress 0-1).
@@ -65,7 +123,7 @@ def transcribe_audio(
 
     # Step 1: Get provider
     report_progress("Loading model", 0.0)
-    stt_provider = get_provider(provider)
+    stt_provider = _get_configured_provider(provider, device, model_size)
     report_progress("Loading model", 0.5)
 
     # Step 2: Transcribe
