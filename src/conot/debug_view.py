@@ -41,6 +41,8 @@ class DebugView:
         self._sample_rate = sample_rate
         self._chunk_size = chunk_size
         self._extra_info: str = ""  # For additional status info
+        self._transcription_lines: list[tuple[str, str, str]] = []  # (speaker, lang, text)
+        self._max_transcription_lines = 8  # Max lines to show
 
     def _format_duration(self, seconds: float) -> str:
         """Format duration as HH:MM:SS."""
@@ -139,6 +141,25 @@ class DebugView:
         lines.append(self._create_meter_bar(rms_norm, rms_db, "RMS "))
         lines.append(self._create_meter_bar(peak_norm, peak_db, "Peak"))
 
+        # Transcription section (if any)
+        with self._lock:
+            transcription_lines = list(self._transcription_lines)
+
+        if transcription_lines:
+            lines.append(Text())
+            lines.append(Text("  ─── Transcription ───", style="dim"))
+            for speaker, lang, text in transcription_lines:
+                line = Text()
+                line.append("  ")
+                if speaker:
+                    line.append(f"[{speaker}] ", style="cyan")
+                if lang:
+                    line.append(f"({lang}) ", style="dim")
+                # Truncate long lines
+                display_text = text[:70] + "..." if len(text) > 70 else text
+                line.append(display_text)
+                lines.append(line)
+
         # Combine all lines
         content = Text("\n").join(lines)
 
@@ -189,6 +210,23 @@ class DebugView:
                 self._is_recording = is_recording
             if extra_info is not None:
                 self._extra_info = extra_info
+
+        if self._live is not None:
+            self._live.update(self._render())
+
+    def add_transcription(self, text: str, language: str = "", speaker: str = "") -> None:
+        """Add a transcription line to display.
+
+        Args:
+            text: Transcribed text
+            language: Language code (e.g., "fr", "en")
+            speaker: Speaker ID (e.g., "SPEAKER_00")
+        """
+        with self._lock:
+            self._transcription_lines.append((speaker, language, text))
+            # Keep only the last N lines
+            if len(self._transcription_lines) > self._max_transcription_lines:
+                self._transcription_lines = self._transcription_lines[-self._max_transcription_lines:]
 
         if self._live is not None:
             self._live.update(self._render())

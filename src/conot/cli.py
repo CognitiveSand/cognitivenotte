@@ -321,6 +321,12 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             if segment.is_final:
                 segment_count += 1
                 if debug_view:
+                    # Add transcription to debug view
+                    debug_view.add_transcription(
+                        text=segment.text,
+                        language=segment.language,
+                        speaker=segment.speaker,
+                    )
                     lang_info = ",".join(sorted(languages_seen)) if languages_seen else "?"
                     debug_view.update(extra_info=f"{segment_count} segs | Lang: {lang_info}")
                 else:

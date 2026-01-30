@@ -315,3 +315,71 @@ class TestDebugViewChunkSizeDisplay:
         panel = view._render()
         content_str = str(panel.renderable)
         assert "50ms" in content_str
+
+
+class TestDebugViewTranscription:
+    """Tests for transcription display in debug view."""
+
+    def test_add_transcription_basic(self, mock_device):
+        """Test adding transcription text."""
+        view = DebugView(device=mock_device)
+        view.add_transcription("Hello world", language="en")
+
+        assert len(view._transcription_lines) == 1
+        assert view._transcription_lines[0] == ("", "en", "Hello world")
+
+    def test_add_transcription_with_speaker(self, mock_device):
+        """Test adding transcription with speaker."""
+        view = DebugView(device=mock_device)
+        view.add_transcription("Bonjour", language="fr", speaker="SPEAKER_00")
+
+        assert len(view._transcription_lines) == 1
+        assert view._transcription_lines[0] == ("SPEAKER_00", "fr", "Bonjour")
+
+    def test_transcription_max_lines(self, mock_device):
+        """Test that transcription respects max lines limit."""
+        view = DebugView(device=mock_device)
+        view._max_transcription_lines = 3
+
+        for i in range(5):
+            view.add_transcription(f"Line {i}", language="en")
+
+        assert len(view._transcription_lines) == 3
+        # Should keep the last 3 lines
+        assert view._transcription_lines[0][2] == "Line 2"
+        assert view._transcription_lines[2][2] == "Line 4"
+
+    def test_transcription_renders_in_panel(self, mock_device):
+        """Test that transcription shows in panel."""
+        view = DebugView(device=mock_device)
+        view.add_transcription("Test transcription", language="fr")
+
+        panel = view._render()
+        content_str = str(panel.renderable)
+
+        assert "Transcription" in content_str
+        assert "Test transcription" in content_str
+        assert "(fr)" in content_str
+
+    def test_transcription_with_speaker_renders(self, mock_device):
+        """Test that speaker shows in panel."""
+        view = DebugView(device=mock_device)
+        view.add_transcription("Hello", language="en", speaker="SPEAKER_01")
+
+        panel = view._render()
+        content_str = str(panel.renderable)
+
+        assert "[SPEAKER_01]" in content_str
+
+    def test_long_text_truncation(self, mock_device):
+        """Test that long text is truncated."""
+        view = DebugView(device=mock_device)
+        long_text = "A" * 100  # 100 characters
+        view.add_transcription(long_text, language="en")
+
+        panel = view._render()
+        content_str = str(panel.renderable)
+
+        # Should be truncated with ...
+        assert "..." in content_str
+        assert "A" * 100 not in content_str  # Full text should not appear
