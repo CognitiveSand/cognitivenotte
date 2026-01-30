@@ -37,12 +37,28 @@ class DebugConfig(BaseModel):
     reference_db: float = Field(default=-60.0, ge=-100.0, le=0.0)
 
 
+class STTConfig(BaseModel):
+    """Speech-to-text configuration."""
+
+    provider: str = Field(default="auto")
+    device: str = Field(default="auto")
+    language: str = Field(default="auto")
+    diarization: bool = Field(default=True)
+    model_size: str = Field(default="auto")
+    compute_type: str = Field(default="auto")
+    vad_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_speech_duration_ms: int = Field(default=250, ge=50, le=5000)
+    max_speech_duration_s: float = Field(default=30.0, ge=1.0, le=300.0)
+    huggingface_token: str | None = Field(default=None)
+
+
 class Settings(BaseModel):
     """Application settings loaded from settings.yml."""
 
     audio: AudioConfig = Field(default_factory=AudioConfig)
     recording: RecordingConfig = Field(default_factory=RecordingConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
+    stt: STTConfig = Field(default_factory=STTConfig)
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> "Settings":

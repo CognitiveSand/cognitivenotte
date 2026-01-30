@@ -1,6 +1,7 @@
 """Command-line interface for Conot."""
 
 import argparse
+import json
 import signal
 import sys
 import time
@@ -8,7 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from rich.text import Text
 
 from conot.config import Settings, get_settings
 from conot.debug_view import DebugView
@@ -132,6 +137,178 @@ def _record_simple(
         return 1
 
 
+def cmd_transcribe(args: argparse.Namespace) -> int:
+    """Transcribe audio from file or microphone."""
+    if args.live:
+        return _transcribe_live(args)
+    else:
+        return _transcribe_file(args)
+
+
+def _transcribe_file(args: argparse.Namespace) -> int:
+    """Transcribe an audio file."""
+    from conot.stt.exceptions import STTError
+    from conot.stt.transcribe import transcribe_audio
+
+    audio_path = Path(args.audio_file)
+    if not audio_path.exists():
+        console.print(f"[red]Error:[/red] Audio file not found: {audio_path}")
+        return 1
+
+    output_path = Path(args.output) if args.output else None
+    output_format = args.format or "json"
+    enable_diarization = not args.no_diarization
+
+    console.print(f"[bold]Transcribing:[/bold] {audio_path}")
+    if enable_diarization:
+        console.print("[dim]Speaker diarization enabled[/dim]")
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task_id = progress.add_task("Loading model...", total=None)
+
+            def on_progress(stage: str, pct: float) -> None:
+                progress.update(task_id, description=f"{stage}...")
+
+            result = transcribe_audio(
+                audio_path=audio_path,
+                provider=args.provider if hasattr(args, "provider") else None,
+                enable_diarization=enable_diarization,
+                progress_callback=on_progress,
+            )
+
+        # Format output
+        if output_format == "json":
+            output = result.to_json()
+        elif output_format == "txt":
+            output = result.to_text()
+        elif output_format == "srt":
+            output = result.to_srt()
+        else:
+            console.print(f"[red]Error:[/red] Unknown format: {output_format}")
+            return 1
+
+        # Write or print output
+        if output_path:
+            output_path.write_text(output, encoding="utf-8")
+            console.print(f"[green]✓ Saved:[/green] {output_path}")
+        else:
+            console.print(output)
+
+        # Print summary
+        if output_path or output_format != "json":
+            n_segments = len(result.segments)
+            n_speakers = len(result.speakers) if result.speakers else 0
+            if result.languages_detected:
+                languages = ", ".join(result.languages_detected)
+            else:
+                languages = "unknown"
+            console.print(f"\n[dim]Duration: {result.duration_s:.1f}s | "
+                          f"Segments: {n_segments} | "
+                          f"Speakers: {n_speakers} | "
+                          f"Languages: {languages}[/dim]")
+
+        return 0
+
+    except STTError as e:
+        console.print(f"[red]Transcription error:[/red] {e}")
+        return 1
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        return 1
+
+
+def _transcribe_live(args: argparse.Namespace) -> int:
+    """Live transcription from microphone."""
+    from conot.stt.exceptions import STTError
+    from conot.stt.models import StreamingSegment
+    from conot.stt.transcribe import create_live_transcriber
+
+    output_path = Path(args.output) if args.output else None
+    device_id = args.device if hasattr(args, "device") else None
+
+    # Storage for segments
+    all_segments: list[StreamingSegment] = []
+    display_text = Text()
+
+    def on_segment(segment: StreamingSegment) -> None:
+        all_segments.append(segment)
+        # Update display
+        if segment.is_final:
+            display_text.append(f"[{segment.language}] ", style="dim")
+            display_text.append(segment.text + "\n")
+
+    # Setup signal handler
+    stop_requested = False
+
+    def signal_handler(signum: int, frame: object) -> None:
+        nonlocal stop_requested
+        stop_requested = True
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    console.print("[bold]Live transcription[/bold]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    try:
+        transcriber = create_live_transcriber(
+            provider=args.provider if hasattr(args, "provider") else None,
+            device_id=device_id,
+            callback=on_segment,
+        )
+
+        transcriber.start()
+        console.print("[green]● Listening...[/green]\n")
+
+        # Use Live display for streaming output
+        panel = Panel(display_text, title="Transcription")
+        with Live(panel, refresh_per_second=4, console=console) as live:
+            while not stop_requested:
+                time.sleep(0.1)
+                live.update(Panel(display_text, title="Transcription"))
+
+        console.print("\n[yellow]Stopping...[/yellow]")
+        final_segments = transcriber.stop()
+
+        # Save output if requested
+        if output_path:
+            # Convert to JSON
+            output_data = {
+                "segments": [
+                    {
+                        "segment_id": s.segment_id,
+                        "start": s.start,
+                        "end": s.end,
+                        "text": s.text,
+                        "language": s.language,
+                        "confidence": s.confidence,
+                    }
+                    for s in final_segments
+                ]
+            }
+            output_path.write_text(
+                json.dumps(output_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            console.print(f"\n[green]✓ Saved:[/green] {output_path}")
+
+        console.print(f"\n[dim]Total segments: {len(final_segments)}[/dim]")
+        return 0
+
+    except STTError as e:
+        console.print(f"[red]Transcription error:[/red] {e}")
+        return 1
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        return 1
+
+
 def _record_with_debug(
     recorder: AudioRecorder,
     device: AudioDevice,
@@ -216,6 +393,57 @@ def create_parser() -> argparse.ArgumentParser:
         help="Device ID to use (from list-devices)",
     )
     record_parser.set_defaults(func=cmd_record)
+
+    # transcribe command
+    transcribe_parser = subparsers.add_parser(
+        "transcribe",
+        help="Transcribe audio from file or microphone",
+    )
+    transcribe_parser.add_argument(
+        "audio_file",
+        nargs="?",
+        help="Audio file to transcribe (omit for --live mode)",
+    )
+    transcribe_parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Live transcription from microphone",
+    )
+    transcribe_parser.add_argument(
+        "--output",
+        "-o",
+        help="Output file path (default: stdout)",
+    )
+    transcribe_parser.add_argument(
+        "--format",
+        "-f",
+        choices=["json", "txt", "srt"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    transcribe_parser.add_argument(
+        "--no-diarization",
+        action="store_true",
+        help="Disable speaker diarization",
+    )
+    transcribe_parser.add_argument(
+        "--provider",
+        choices=["auto", "faster-whisper", "whisper-cpp"],
+        default="auto",
+        help="STT provider (default: auto)",
+    )
+    transcribe_parser.add_argument(
+        "--device",
+        type=int,
+        help="Audio input device ID (for --live mode)",
+    )
+    transcribe_parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Show debug information",
+    )
+    transcribe_parser.set_defaults(func=cmd_transcribe)
 
     return parser
 

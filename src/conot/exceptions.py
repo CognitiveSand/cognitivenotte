@@ -31,3 +31,6 @@ class RecordingNotStartedError(RecordingError):
 
 class RecordingAlreadyStartedError(RecordingError):
     """Attempted to start recording that is already in progress."""
+
+
+# STT-related exceptions are in conot.stt.exceptions

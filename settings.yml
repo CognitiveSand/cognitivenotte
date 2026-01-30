@@ -20,3 +20,25 @@ debug:
   meter_update_interval: 0.05
   # Reference level for dB calculations
   reference_db: -60.0
+
+stt:
+  # STT provider: auto | faster-whisper | whisper-cpp
+  provider: auto
+  # Compute device: auto | cuda | cpu
+  device: auto
+  # Primary language: auto | fr | en
+  language: auto
+  # Enable speaker diarization
+  diarization: true
+  # Model size: auto | large-v3 | medium | small | tiny
+  model_size: auto
+  # Compute precision: auto | float16 | int8 | float32
+  compute_type: auto
+  # Voice activity detection threshold (0.0 - 1.0)
+  vad_threshold: 0.5
+  # Minimum speech duration in milliseconds
+  min_speech_duration_ms: 250
+  # Maximum speech segment duration in seconds
+  max_speech_duration_s: 30.0
+  # HuggingFace token for pyannote diarization (or set HF_TOKEN env var)
+  huggingface_token: null

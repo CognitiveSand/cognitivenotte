@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
     "rich>=13.9.0",
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,28 @@ dev = [
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
     "types-pyyaml>=6.0.0",
+]
+
+# STT providers (install one or more based on hardware)
+stt-gpu = [
+    "faster-whisper>=1.0.0",
+    "torch>=2.0.0",
+]
+stt-cpu = [
+    "pywhispercpp>=1.0.0",
+]
+stt-diarization = [
+    "pyannote-audio>=3.0.0",
+]
+stt-vad = [
+    "torch>=2.0.0",  # For Silero VAD
+]
+# Convenience: install all STT dependencies
+stt = [
+    "conot[stt-gpu,stt-diarization,stt-vad]",
+]
+stt-full = [
+    "conot[stt-gpu,stt-cpu,stt-diarization,stt-vad]",
 ]
 
 [project.scripts]

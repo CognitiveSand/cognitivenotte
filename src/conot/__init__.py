@@ -30,3 +30,17 @@ __all__ = [
     "list_input_devices",
     "select_best_device",
 ]
+
+
+# Lazy imports for STT module to avoid loading heavy dependencies
+def __getattr__(name: str):
+    """Lazy import for STT components."""
+    if name == "stt":
+        from conot import stt
+
+        return stt
+    if name == "transcribe_audio":
+        from conot.stt.transcribe import transcribe_audio
+
+        return transcribe_audio
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
