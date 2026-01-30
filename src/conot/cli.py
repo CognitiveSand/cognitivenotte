@@ -204,19 +204,23 @@ def _transcribe_file(args: argparse.Namespace) -> int:
             def on_progress(stage: str, pct: float) -> None:
                 progress.update(task_id, description=f"{stage}...")
 
-            # Handle device/model args
+            # Handle device/model/language args
             compute_device = getattr(args, "compute_device", "auto")
             if compute_device == "auto":
                 compute_device = None
             model_size = getattr(args, "model_size", "auto")
             if model_size == "auto":
                 model_size = None
+            language = getattr(args, "language", "auto")
+            if language == "auto":
+                language = None  # None means auto-detect
 
             result = transcribe_audio(
                 audio_path=audio_path,
                 provider=args.provider if hasattr(args, "provider") else None,
                 device=compute_device,
                 model_size=model_size,
+                language=language,
                 enable_diarization=enable_diarization,
                 progress_callback=on_progress,
             )
@@ -295,9 +299,27 @@ def _transcribe_live(args: argparse.Namespace) -> int:
     try:
         import sounddevice as sd
 
-        # Get STT provider
+        # Get STT provider with language setting
         provider_name = args.provider if hasattr(args, "provider") else None
-        provider = get_provider(provider_name)
+        language = getattr(args, "language", "auto")
+        if language == "auto":
+            language = None  # None means auto-detect
+
+        # Create provider with language setting
+        if provider_name is None or provider_name == "auto":
+            # Try faster-whisper first
+            try:
+                from conot.stt.providers.faster_whisper import FasterWhisperProvider
+                provider = FasterWhisperProvider(language=language)
+            except ImportError:
+                from conot.stt.registry import get_provider
+                provider = get_provider(provider_name)
+        elif provider_name == "faster-whisper":
+            from conot.stt.providers.faster_whisper import FasterWhisperProvider
+            provider = FasterWhisperProvider(language=language)
+        else:
+            from conot.stt.registry import get_provider
+            provider = get_provider(provider_name)
 
         # Setup debug view if requested
         debug_view: DebugView | None = None
@@ -602,6 +624,13 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["auto", "large-v3", "medium", "small", "tiny"],
         default="auto",
         help="Whisper model size (default: auto based on hardware)",
+    )
+    transcribe_parser.add_argument(
+        "--language",
+        "-l",
+        choices=["auto", "fr", "en", "de", "es", "it", "pt", "nl", "ja", "zh", "ko"],
+        default="auto",
+        help="Language code (default: auto-detect). Use 'fr' or 'en' for better accuracy.",
     )
     transcribe_parser.add_argument(
         "--device",

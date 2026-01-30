@@ -105,6 +105,7 @@ class FasterWhisperProvider(BaseSTTProvider):
         model_size: str = "auto",
         device: str = "auto",
         compute_type: str = "auto",
+        language: str | None = None,
     ) -> None:
         """Initialize the faster-whisper provider.
 
@@ -112,11 +113,13 @@ class FasterWhisperProvider(BaseSTTProvider):
             model_size: Model size (large-v3, medium, small, tiny) or "auto".
             device: Device to use (cuda, cpu) or "auto".
             compute_type: Compute precision (float16, int8, float32) or "auto".
+            language: Language code (fr, en) or None for auto-detect.
         """
         super().__init__()
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
+        self._language = language  # None = auto-detect
         self._model: WhisperModel | None = None
         self._hardware = detect_hardware()
 
@@ -230,7 +233,7 @@ class FasterWhisperProvider(BaseSTTProvider):
             segments_iter, info = self._model.transcribe(
                 str(audio_path),
                 word_timestamps=True,
-                language=None,  # Auto-detect
+                language=self._language,  # None = auto-detect
                 vad_filter=True,
                 vad_parameters={
                     "min_silence_duration_ms": 500,
@@ -356,7 +359,7 @@ class FasterWhisperProvider(BaseSTTProvider):
                     segments_iter, info = self._model.transcribe(
                         audio_float,
                         word_timestamps=False,
-                        language=None,
+                        language=self._language,
                         vad_filter=True,
                     )
 
@@ -389,7 +392,7 @@ class FasterWhisperProvider(BaseSTTProvider):
                 segments_iter, info = self._model.transcribe(
                     audio_float,
                     word_timestamps=False,
-                    language=None,
+                    language=self._language,
                     vad_filter=True,
                 )
 
@@ -427,7 +430,7 @@ class FasterWhisperProvider(BaseSTTProvider):
             _, info = self._model.transcribe(
                 str(audio_path),
                 word_timestamps=False,
-                language=None,
+                language=self._language,
             )
             return str(info.language)
         except Exception as e:

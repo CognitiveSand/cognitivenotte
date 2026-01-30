@@ -180,6 +180,47 @@ class TestTranscribeAudio:
         assert "Loading model" in stages
         assert "Transcribing" in stages
 
+    @patch("conot.stt.transcribe._get_configured_provider")
+    def test_transcribe_with_language(self, mock_get_configured_provider, tmp_path):
+        """Test that language parameter is passed to provider."""
+        audio_file = tmp_path / "test.wav"
+        audio_file.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        provider = MockProvider()
+        mock_get_configured_provider.return_value = provider
+
+        transcribe_audio(
+            audio_file,
+            language="fr",
+            enable_diarization=False,
+        )
+
+        # Verify language was passed to _get_configured_provider
+        mock_get_configured_provider.assert_called_once()
+        call_args = mock_get_configured_provider.call_args
+        assert call_args[0][3] == "fr" or call_args[1].get("language") == "fr"
+
+    @patch("conot.stt.transcribe._get_configured_provider")
+    def test_transcribe_with_language_none_for_auto(self, mock_get_configured_provider, tmp_path):
+        """Test that language=None means auto-detect."""
+        audio_file = tmp_path / "test.wav"
+        audio_file.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        provider = MockProvider()
+        mock_get_configured_provider.return_value = provider
+
+        transcribe_audio(
+            audio_file,
+            language=None,  # Explicitly None for auto-detect
+            enable_diarization=False,
+        )
+
+        # Verify language was passed as None
+        mock_get_configured_provider.assert_called_once()
+        call_args = mock_get_configured_provider.call_args
+        # language should be None (4th positional arg)
+        assert call_args[0][3] is None
+
 
 class TestTranscribeStream:
     """Tests for transcribe_stream function."""
