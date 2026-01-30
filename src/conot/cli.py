@@ -310,16 +310,25 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                 chunk_size=chunk_size,
             )
 
+        # Track languages detected
+        languages_seen: set[str] = set()
+
         def on_segment(segment: StreamingSegment) -> None:
             nonlocal segment_count
             all_segments.append(segment)
+            if segment.language:
+                languages_seen.add(segment.language)
             if segment.is_final:
                 segment_count += 1
                 if debug_view:
-                    debug_view.update(extra_info=f"{segment_count} segments")
+                    lang_info = ",".join(sorted(languages_seen)) if languages_seen else "?"
+                    debug_view.update(extra_info=f"{segment_count} segs | Lang: {lang_info}")
                 else:
-                    # Print inline when not in debug mode
-                    console.print(f"[dim][{segment.language}][/dim] {segment.text}")
+                    # Print inline when not in debug mode with clear formatting
+                    # Format: [speaker] [lang] text
+                    speaker_prefix = f"[cyan][{segment.speaker}][/cyan] " if segment.speaker else ""
+                    lang_tag = f"[dim]({segment.language})[/dim] " if segment.language else ""
+                    console.print(f"{speaker_prefix}{lang_tag}{segment.text}")
 
         def on_audio(audio_data: object) -> None:
             if debug_view:
@@ -388,10 +397,11 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                     time.sleep(0.1)
                     # Get debug stats from orchestrator
                     stats = orchestrator.debug_stats
+                    lang_info = ",".join(sorted(languages_seen)) if languages_seen else "?"
                     info = (
                         f"RMS={stats['last_rms']} | "
                         f"Speech={'yes' if stats['speech'] else 'no'} | "
-                        f"Buffer={stats['speech_acc']} | "
+                        f"Lang: {lang_info} | "
                         f"{segment_count} segs"
                     )
                     debug_view.update(duration=time.time() - start_time, extra_info=info)
@@ -412,6 +422,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         # Save output if requested
         if output_path:
             output_data = {
+                "languages_detected": sorted(languages_seen),
                 "segments": [
                     {
                         "segment_id": s.segment_id,
@@ -419,6 +430,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                         "end": s.end,
                         "text": s.text,
                         "language": s.language,
+                        "speaker": s.speaker,
                         "confidence": s.confidence,
                     }
                     for s in final_segments
@@ -430,7 +442,9 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             )
             console.print(f"\n[green]✓ Saved:[/green] {output_path}")
 
-        console.print(f"\n[dim]Total segments: {len(final_segments)}[/dim]")
+        # Summary
+        lang_summary = ", ".join(sorted(languages_seen)) if languages_seen else "unknown"
+        console.print(f"\n[dim]Total segments: {len(final_segments)} | Languages: {lang_summary}[/dim]")
         return 0
 
     except STTError as e:

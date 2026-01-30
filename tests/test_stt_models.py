@@ -124,6 +124,20 @@ class TestStreamingSegment:
         )
         assert segment.segment_id == "seg_1_abc123"
         assert segment.is_final is False
+        assert segment.speaker == ""  # Default empty
+
+    def test_creation_with_speaker(self):
+        segment = StreamingSegment(
+            segment_id="seg_1",
+            start=0.0,
+            end=2.0,
+            text="Hello",
+            language="en",
+            is_final=True,
+            confidence=0.9,
+            speaker="SPEAKER_00",
+        )
+        assert segment.speaker == "SPEAKER_00"
 
     def test_to_dict(self):
         segment = StreamingSegment(
@@ -139,6 +153,21 @@ class TestStreamingSegment:
         assert result["segment_id"] == "seg_2"
         assert result["is_final"] is True
         assert result["language"] == "fr"
+        assert result["speaker"] == ""  # Default empty
+
+    def test_to_dict_with_speaker(self):
+        segment = StreamingSegment(
+            segment_id="seg_3",
+            start=0.0,
+            end=1.0,
+            text="Test",
+            language="en",
+            is_final=True,
+            confidence=0.85,
+            speaker="SPEAKER_01",
+        )
+        result = segment.to_dict()
+        assert result["speaker"] == "SPEAKER_01"
 
 
 class TestTranscriptionResult:

@@ -78,6 +78,7 @@ class StreamingSegment:
     language: str
     is_final: bool  # True when segment won't change
     confidence: float
+    speaker: str = ""  # Speaker ID (empty until diarization)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert streaming segment to dictionary."""
@@ -89,6 +90,7 @@ class StreamingSegment:
             "language": self.language,
             "is_final": self.is_final,
             "confidence": self.confidence,
+            "speaker": self.speaker,
         }
 
 
