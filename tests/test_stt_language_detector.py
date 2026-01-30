@@ -86,14 +86,14 @@ class TestLanguageDetector:
         assert result == "en"
 
     def test_voting_prevents_flip_flop(self):
-        """Language shouldn't flip-flop with single different detection."""
+        """Medium confidence detection shouldn't flip-flop without consensus."""
         detector = LanguageDetector()
         # Build up French consensus
         detector.update("fr", 0.90, audio_duration=2.0)
         detector.update("fr", 0.88, audio_duration=2.0)
         detector.update("fr", 0.92, audio_duration=2.0)
-        # Single high-confidence English shouldn't change yet
-        result = detector.update("en", 0.85, audio_duration=2.0)
+        # Single MEDIUM-confidence English (below high_confidence=0.85) shouldn't change
+        result = detector.update("en", 0.78, audio_duration=2.0)
         # Need 60% consensus to change, only have 1/4 = 25%
         assert result == "fr"
 
@@ -110,6 +110,41 @@ class TestLanguageDetector:
         # Build English consensus (2/3 = 67% > 60%)
         detector.update("en", 0.85, audio_duration=1.0)
         result = detector.update("en", 0.88, audio_duration=1.0)
+        assert result == "en"
+
+    def test_high_confidence_immediate_switch(self):
+        """High confidence detection should switch immediately."""
+        config = LanguageDetectorConfig(
+            high_confidence=0.85,
+            initial_detection_duration=0,
+        )
+        detector = LanguageDetector(config)
+        # Start with French
+        detector.update("fr", 0.90, audio_duration=2.0)
+        assert detector.current_language == "fr"
+        # Single high-confidence English should switch immediately
+        result = detector.update("en", 0.92, audio_duration=2.0)
+        assert result == "en"  # Immediate switch due to high confidence
+
+    def test_high_confidence_bilingual_switching(self):
+        """Bilingual speech should switch back and forth with high confidence."""
+        config = LanguageDetectorConfig(
+            allowed_languages=["fr", "en"],
+            high_confidence=0.85,
+            initial_detection_duration=0,
+        )
+        detector = LanguageDetector(config)
+        # French
+        result = detector.update("fr", 0.91, audio_duration=2.0)
+        assert result == "fr"
+        # Switch to English (high confidence)
+        result = detector.update("en", 0.88, audio_duration=2.0)
+        assert result == "en"
+        # Back to French (high confidence)
+        result = detector.update("fr", 0.90, audio_duration=2.0)
+        assert result == "fr"
+        # Back to English
+        result = detector.update("en", 0.86, audio_duration=2.0)
         assert result == "en"
 
     def test_reset(self):

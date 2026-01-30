@@ -26,6 +26,9 @@ class LanguageDetectorConfig:
     # Minimum probability to accept a detection
     min_confidence: float = 0.7
 
+    # High confidence threshold - immediately switch if above this
+    high_confidence: float = 0.85
+
     # Number of recent detections to consider for voting
     voting_window: int = 5
 
@@ -141,6 +144,18 @@ class LanguageDetector:
                     # Not enough audio yet, use best so far
                     self._current_language = self._get_voted_language()
                 return self._current_language
+
+            # High-confidence fast path: if detection is very confident AND
+            # within allowed languages, switch immediately (for bilingual speech)
+            if probability >= self._config.high_confidence:
+                if self._config.allowed_languages is None or language in self._config.allowed_languages:
+                    if language != self._current_language:
+                        logger.info(
+                            f"Language changed (high confidence): "
+                            f"{self._current_language} → {language} ({probability:.0%})"
+                        )
+                        self._current_language = language
+                    return self._current_language
 
             # Ongoing detection: use voting with change threshold
             voted_language = self._get_voted_language()
