@@ -20,12 +20,16 @@ class DebugView:
         self,
         device: AudioDevice,
         reference_db: float = -60.0,
+        sample_rate: int = 16000,
+        chunk_size: int = 1600,
     ) -> None:
         """Initialize debug view.
 
         Args:
             device: Audio device being used
             reference_db: Reference dB level for meters
+            sample_rate: Audio sample rate in Hz
+            chunk_size: Audio chunk size in samples
         """
         self._device = device
         self._meter = AudioMeter(reference_db=reference_db)
@@ -34,6 +38,9 @@ class DebugView:
         self._is_recording: bool = False
         self._console = Console()
         self._live: Live | None = None
+        self._sample_rate = sample_rate
+        self._chunk_size = chunk_size
+        self._extra_info: str = ""  # For additional status info
 
     def _format_duration(self, seconds: float) -> str:
         """Format duration as HH:MM:SS."""
@@ -82,6 +89,7 @@ class DebugView:
             peak_db = self._meter.peak_db
             duration = self._duration
             is_recording = self._is_recording
+            extra_info = self._extra_info
 
         # Status
         status = "Recording" if is_recording else "Stopped"
@@ -98,6 +106,13 @@ class DebugView:
             device_text.append(" (default)", style="dim")
         lines.append(device_text)
 
+        # Audio settings
+        settings_text = Text()
+        settings_text.append("  Audio:  ", style="bold")
+        chunk_ms = int(self._chunk_size * 1000 / self._sample_rate)
+        settings_text.append(f"{self._sample_rate} Hz, {self._chunk_size} samples ({chunk_ms}ms)", style="dim")
+        lines.append(settings_text)
+
         # Status
         status_text = Text()
         status_text.append("  Status: ", style="bold")
@@ -109,6 +124,13 @@ class DebugView:
         duration_text.append("  Duration: ", style="bold")
         duration_text.append(self._format_duration(duration))
         lines.append(duration_text)
+
+        # Extra info (if any)
+        if extra_info:
+            info_text = Text()
+            info_text.append("  Info: ", style="bold")
+            info_text.append(extra_info, style="cyan")
+            lines.append(info_text)
 
         # Empty line
         lines.append(Text())
@@ -148,6 +170,7 @@ class DebugView:
         audio_data: NDArray[np.float32] | None = None,
         duration: float | None = None,
         is_recording: bool | None = None,
+        extra_info: str | None = None,
     ) -> None:
         """Update the display with new data.
 
@@ -155,6 +178,7 @@ class DebugView:
             audio_data: New audio chunk for meter update
             duration: Current recording duration
             is_recording: Recording status
+            extra_info: Additional status info to display
         """
         with self._lock:
             if audio_data is not None:
@@ -163,6 +187,8 @@ class DebugView:
                 self._duration = duration
             if is_recording is not None:
                 self._is_recording = is_recording
+            if extra_info is not None:
+                self._extra_info = extra_info
 
         if self._live is not None:
             self._live.update(self._render())

@@ -158,6 +158,7 @@ class StreamingOrchestrator:
         vad: VoiceActivityDetector | None = None,
         sample_rate: int = 16000,
         callback: StreamingCallback | None = None,
+        audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
     ) -> None:
         """Initialize the streaming orchestrator.
 
@@ -166,11 +167,13 @@ class StreamingOrchestrator:
             vad: Voice activity detector (created if None).
             sample_rate: Audio sample rate.
             callback: Callback for streaming segment updates.
+            audio_callback: Optional callback for audio level monitoring (e.g., VU meter).
         """
         self._provider = provider
         self._vad = vad or create_vad(sample_rate=sample_rate)
         self._sample_rate = sample_rate
         self._callback = callback
+        self._audio_level_callback = audio_callback
 
         self._buffer = AudioBuffer(sample_rate=sample_rate)
         self._tracker = SegmentTracker()
@@ -184,6 +187,25 @@ class StreamingOrchestrator:
         self._speech_start_time = 0.0
         self._last_speech_end = 0.0
         self._total_audio_time = 0.0
+
+        # VAD buffer - accumulate audio before VAD check
+        self._vad_buffer = bytearray()
+        self._vad_check_interval_s = 0.5  # Check VAD every 500ms
+
+        # Debug stats
+        self._last_rms = 0.0
+        self._speech_detected = False
+
+    @property
+    def debug_stats(self) -> dict[str, object]:
+        """Get debug statistics for display."""
+        return {
+            "total_time": f"{self._total_audio_time:.1f}s",
+            "buffer_time": f"{len(self._vad_buffer) / (self._sample_rate * 2):.2f}s",
+            "speech_acc": f"{len(self._speech_accumulator) / (self._sample_rate * 2):.2f}s",
+            "last_rms": f"{self._last_rms:.4f}",
+            "speech": self._speech_detected,
+        }
 
     def start(self) -> None:
         """Start the streaming transcription pipeline."""
@@ -234,16 +256,28 @@ class StreamingOrchestrator:
         Args:
             audio_data: Audio data as float32 numpy array.
         """
+        # Ensure we have a flat array
+        if audio_data.ndim > 1:
+            audio_data = audio_data[:, 0]
+
+        # Call audio level callback for VU meter
+        if self._audio_level_callback:
+            self._audio_level_callback(audio_data)
+
         # Convert float32 to int16 bytes
         audio_int16 = (audio_data * 32767).astype(np.int16)
-        if audio_int16.ndim > 1:
-            audio_int16 = audio_int16[:, 0]  # Take first channel
         self.feed_audio(audio_int16.tobytes())
 
     def _process_loop(self) -> None:
         """Main processing loop running in background thread."""
         silence_threshold_s = 0.8  # Silence duration to trigger transcription
         min_speech_s = 0.3  # Minimum speech to transcribe
+
+        # Adaptive RMS threshold for speech detection
+        # Start with low threshold, adapt based on noise floor
+        speech_rms_threshold = 0.003  # Initial threshold (~-50 dB)
+        noise_floor_samples: list[float] = []
+        max_noise_samples = 20
 
         while self._running:
             try:
@@ -260,43 +294,87 @@ class StreamingOrchestrator:
                 chunk_duration = len(audio_bytes) / (self._sample_rate * 2)
                 self._total_audio_time += chunk_duration
 
-                # Convert to float for VAD
-                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-                audio_float = audio_array.astype(np.float32) / 32768.0
+                # Accumulate for VAD check
+                self._vad_buffer.extend(audio_bytes)
+                vad_buffer_duration = len(self._vad_buffer) / (self._sample_rate * 2)
 
-                # Check for speech
-                speech_segments = self._vad.detect_speech(audio_float)
+                # Only check VAD when we have enough audio
+                if vad_buffer_duration >= self._vad_check_interval_s:
+                    # Convert to float for analysis
+                    audio_array = np.frombuffer(bytes(self._vad_buffer), dtype=np.int16)
+                    audio_float = audio_array.astype(np.float32) / 32768.0
 
-                if speech_segments:
-                    # Speech detected - accumulate
-                    self._speech_accumulator.extend(audio_bytes)
+                    # Simple RMS-based speech detection with adaptive threshold
+                    rms = np.sqrt(np.mean(audio_float**2))
 
-                    if not self._speech_start_time:
-                        self._speech_start_time = self._total_audio_time - chunk_duration
+                    # Update noise floor estimate (only when not in speech)
+                    if len(self._speech_accumulator) == 0:
+                        noise_floor_samples.append(rms)
+                        if len(noise_floor_samples) > max_noise_samples:
+                            noise_floor_samples.pop(0)
 
-                    self._last_speech_end = self._total_audio_time
+                        # Adaptive threshold: 3x the median noise floor, min 0.002
+                        if len(noise_floor_samples) >= 3:
+                            noise_median = np.median(noise_floor_samples)
+                            speech_rms_threshold = max(0.002, noise_median * 3)
 
-                else:
-                    # Silence - check if we should transcribe accumulated speech
-                    silence_duration = self._total_audio_time - self._last_speech_end
+                    has_speech = rms > speech_rms_threshold
 
-                    if (
-                        len(self._speech_accumulator) > 0
-                        and silence_duration >= silence_threshold_s
-                    ):
-                        speech_duration = len(self._speech_accumulator) / (
-                            self._sample_rate * 2
-                        )
+                    # Update debug stats
+                    self._last_rms = float(rms)
+                    self._speech_detected = has_speech
 
-                        if speech_duration >= min_speech_s:
-                            self._transcribe_accumulated()
+                    logger.debug(
+                        f"VAD check: RMS={rms:.4f}, threshold={speech_rms_threshold:.4f}, "
+                        f"speech={has_speech}, buffer={vad_buffer_duration:.2f}s"
+                    )
+
+                    if has_speech:
+                        # Speech detected - accumulate
+                        self._speech_accumulator.extend(self._vad_buffer)
+
+                        if not self._speech_start_time:
+                            self._speech_start_time = (
+                                self._total_audio_time - vad_buffer_duration
+                            )
+
+                        self._last_speech_end = self._total_audio_time
+
+                    else:
+                        # Silence - check if we should transcribe accumulated speech
+                        silence_duration = self._total_audio_time - self._last_speech_end
+
+                        if (
+                            len(self._speech_accumulator) > 0
+                            and silence_duration >= silence_threshold_s
+                        ):
+                            speech_duration = len(self._speech_accumulator) / (
+                                self._sample_rate * 2
+                            )
+
+                            if speech_duration >= min_speech_s:
+                                logger.info(
+                                    f"Transcribing {speech_duration:.1f}s of speech "
+                                    f"after {silence_duration:.1f}s silence"
+                                )
+                                self._transcribe_accumulated()
+
+                    # Clear VAD buffer
+                    self._vad_buffer.clear()
 
             except queue.Empty:
                 # Check for pending speech on timeout
                 if len(self._speech_accumulator) > 0:
                     silence_duration = self._total_audio_time - self._last_speech_end
                     if silence_duration >= silence_threshold_s:
-                        self._transcribe_accumulated()
+                        speech_duration = len(self._speech_accumulator) / (
+                            self._sample_rate * 2
+                        )
+                        if speech_duration >= min_speech_s:
+                            logger.info(
+                                f"Transcribing {speech_duration:.1f}s (timeout)"
+                            )
+                            self._transcribe_accumulated()
             except Exception as e:
                 logger.error(f"Error in streaming loop: {e}")
 
@@ -349,6 +427,7 @@ def create_streaming_transcriber(
     provider: STTProvider,
     sample_rate: int = 16000,
     callback: StreamingCallback | None = None,
+    audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
 ) -> StreamingOrchestrator:
     """Create a streaming transcription orchestrator.
 
@@ -356,6 +435,7 @@ def create_streaming_transcriber(
         provider: STT provider for transcription.
         sample_rate: Audio sample rate.
         callback: Callback for segment updates.
+        audio_callback: Optional callback for audio level monitoring.
 
     Returns:
         Configured StreamingOrchestrator instance.
@@ -364,4 +444,5 @@ def create_streaming_transcriber(
         provider=provider,
         sample_rate=sample_rate,
         callback=callback,
+        audio_callback=audio_callback,
     )

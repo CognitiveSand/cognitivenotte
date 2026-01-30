@@ -7,6 +7,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from rich.console import Console
 from rich.live import Live
@@ -22,6 +23,50 @@ from conot.exceptions import ConotError, DeviceNotFoundError
 from conot.recorder import AudioRecorder
 
 console = Console()
+
+T = TypeVar("T")
+
+
+def _get_audio_device(device_id: int | None) -> AudioDevice | None:
+    """Get audio device by ID or auto-select.
+
+    Args:
+        device_id: Device ID or None for auto-selection.
+
+    Returns:
+        AudioDevice if found, None on error (error already printed).
+    """
+    if device_id is not None:
+        try:
+            return get_device_by_id(device_id)
+        except DeviceNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return None
+    else:
+        try:
+            return select_best_device()
+        except DeviceNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return None
+
+
+class SignalHandler:
+    """Reusable signal handler for graceful stop."""
+
+    def __init__(self) -> None:
+        self.stop_requested = False
+
+    def __call__(self, signum: int, frame: object) -> None:
+        self.stop_requested = True
+
+    def install(self) -> None:
+        """Install signal handlers for SIGINT and SIGTERM."""
+        signal.signal(signal.SIGINT, self)
+        signal.signal(signal.SIGTERM, self)
+
+    def should_stop(self) -> bool:
+        """Check if stop was requested."""
+        return self.stop_requested
 
 
 def cmd_list_devices(args: argparse.Namespace) -> int:
@@ -73,36 +118,20 @@ def cmd_record(args: argparse.Namespace) -> int:
     settings = get_settings(Path(args.config) if args.config else None)
 
     # Get device
-    device: AudioDevice
-    if args.device is not None:
-        try:
-            device = get_device_by_id(args.device)
-        except DeviceNotFoundError as e:
-            console.print(f"[red]Error:[/red] {e}")
-            return 1
-    else:
-        try:
-            device = select_best_device()
-        except DeviceNotFoundError as e:
-            console.print(f"[red]Error:[/red] {e}")
-            return 1
+    device = _get_audio_device(args.device)
+    if device is None:
+        return 1
 
     recorder = AudioRecorder(device=device, settings=settings)
 
     # Setup signal handler for graceful stop
-    stop_requested = False
-
-    def signal_handler(signum: int, frame: object) -> None:
-        nonlocal stop_requested
-        stop_requested = True
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    sig_handler = SignalHandler()
+    sig_handler.install()
 
     if args.debug:
-        return _record_with_debug(recorder, device, settings, lambda: stop_requested)
+        return _record_with_debug(recorder, device, settings, sig_handler.should_stop)
     else:
-        return _record_simple(recorder, device, lambda: stop_requested)
+        return _record_simple(recorder, device, sig_handler.should_stop)
 
 
 def _record_simple(
@@ -237,58 +266,120 @@ def _transcribe_live(args: argparse.Namespace) -> int:
     """Live transcription from microphone."""
     from conot.stt.exceptions import STTError
     from conot.stt.models import StreamingSegment
-    from conot.stt.transcribe import create_live_transcriber
+    from conot.stt.registry import get_provider
+    from conot.stt.streaming import create_streaming_transcriber
 
     output_path = Path(args.output) if args.output else None
     device_id = args.device if hasattr(args, "device") else None
+    use_debug = args.debug if hasattr(args, "debug") else False
+
+    # Get audio device
+    device = _get_audio_device(device_id)
+    if device is None:
+        return 1
 
     # Storage for segments
     all_segments: list[StreamingSegment] = []
-    display_text = Text()
-
-    def on_segment(segment: StreamingSegment) -> None:
-        all_segments.append(segment)
-        # Update display
-        if segment.is_final:
-            display_text.append(f"[{segment.language}] ", style="dim")
-            display_text.append(segment.text + "\n")
+    segment_count = 0
 
     # Setup signal handler
-    stop_requested = False
+    sig_handler = SignalHandler()
+    sig_handler.install()
 
-    def signal_handler(signum: int, frame: object) -> None:
-        nonlocal stop_requested
-        stop_requested = True
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    console.print("[bold]Live transcription[/bold]")
-    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+    # Audio settings
+    sample_rate = 16000
+    chunk_size = int(sample_rate * 0.1)  # 100ms blocks
 
     try:
-        transcriber = create_live_transcriber(
-            provider=args.provider if hasattr(args, "provider") else None,
-            device_id=device_id,
+        import sounddevice as sd
+
+        # Get STT provider
+        provider_name = args.provider if hasattr(args, "provider") else None
+        provider = get_provider(provider_name)
+
+        # Setup debug view if requested
+        debug_view: DebugView | None = None
+        if use_debug:
+            settings = get_settings(Path(args.config) if args.config else None)
+            debug_view = DebugView(
+                device=device,
+                reference_db=settings.debug.reference_db,
+                sample_rate=sample_rate,
+                chunk_size=chunk_size,
+            )
+
+        def on_segment(segment: StreamingSegment) -> None:
+            nonlocal segment_count
+            all_segments.append(segment)
+            if segment.is_final:
+                segment_count += 1
+                if debug_view:
+                    debug_view.update(extra_info=f"{segment_count} segments")
+                else:
+                    # Print inline when not in debug mode
+                    console.print(f"[dim][{segment.language}][/dim] {segment.text}")
+
+        def on_audio(audio_data: object) -> None:
+            if debug_view:
+                debug_view.update(audio_data=audio_data)  # type: ignore[arg-type]
+
+        # Create streaming orchestrator
+        orchestrator = create_streaming_transcriber(
+            provider=provider,
+            sample_rate=sample_rate,
             callback=on_segment,
+            audio_callback=on_audio if debug_view else None,
         )
 
-        transcriber.start()
-        console.print("[green]● Listening...[/green]\n")
+        # Create audio stream
+        stream = sd.InputStream(
+            samplerate=sample_rate,
+            channels=1,
+            dtype="float32",
+            device=device.id,
+            callback=orchestrator.feed_audio_callback,
+            blocksize=chunk_size,
+        )
 
-        # Use Live display for streaming output
-        panel = Panel(display_text, title="Transcription")
-        with Live(panel, refresh_per_second=4, console=console) as live:
-            while not stop_requested:
+        console.print(f"[bold]Live transcription[/bold]")
+        console.print(f"[dim]Device: {device.name}[/dim]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Start everything
+        orchestrator.start()
+        stream.start()
+
+        if debug_view:
+            debug_view.update(is_recording=True)
+            with debug_view:
+                start_time = time.time()
+                while not sig_handler.stop_requested:
+                    time.sleep(0.1)
+                    # Get debug stats from orchestrator
+                    stats = orchestrator.debug_stats
+                    info = (
+                        f"RMS={stats['last_rms']} | "
+                        f"Speech={'yes' if stats['speech'] else 'no'} | "
+                        f"Buffer={stats['speech_acc']} | "
+                        f"{segment_count} segs"
+                    )
+                    debug_view.update(duration=time.time() - start_time, extra_info=info)
+        else:
+            console.print("[green]● Listening...[/green]\n")
+            while not sig_handler.stop_requested:
                 time.sleep(0.1)
-                live.update(Panel(display_text, title="Transcription"))
 
         console.print("\n[yellow]Stopping...[/yellow]")
-        final_segments = transcriber.stop()
+
+        # Stop audio stream
+        stream.stop()
+        stream.close()
+
+        # Stop orchestrator and get final segments
+        final_segments = orchestrator.stop()
 
         # Save output if requested
         if output_path:
-            # Convert to JSON
             output_data = {
                 "segments": [
                     {
@@ -326,9 +417,16 @@ def _record_with_debug(
     should_stop: Callable[[], bool],
 ) -> int:
     """Record with debug UI showing meters."""
+    # Get audio settings
+    sample_rate = settings.audio.sample_rate
+    # Default chunk size (sounddevice default is ~100ms)
+    chunk_samples = int(sample_rate * 0.1)
+
     debug_view = DebugView(
         device=device,
         reference_db=settings.debug.reference_db,
+        sample_rate=sample_rate,
+        chunk_size=chunk_samples,
     )
 
     # Connect meter callback
