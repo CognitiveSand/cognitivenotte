@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
+from conot.stt.language_detector import LanguageDetector, LanguageDetectorConfig
 from conot.stt.models import StreamingSegment
 from conot.stt.vad import VoiceActivityDetector, create_vad
 
@@ -159,6 +160,8 @@ class StreamingOrchestrator:
         sample_rate: int = 16000,
         callback: StreamingCallback | None = None,
         audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
+        allowed_languages: list[str] | None = None,
+        language_min_confidence: float = 0.7,
     ) -> None:
         """Initialize the streaming orchestrator.
 
@@ -168,6 +171,10 @@ class StreamingOrchestrator:
             sample_rate: Audio sample rate.
             callback: Callback for streaming segment updates.
             audio_callback: Optional callback for audio level monitoring (e.g., VU meter).
+            allowed_languages: List of allowed language codes (e.g., ["fr", "en"]).
+                If specified, only these languages will be detected.
+            language_min_confidence: Minimum confidence (0-1) to accept a language
+                detection. Lower confidence detections use the previous language.
         """
         self._provider = provider
         self._vad = vad or create_vad(sample_rate=sample_rate)
@@ -196,15 +203,25 @@ class StreamingOrchestrator:
         self._last_rms = 0.0
         self._speech_detected = False
 
+        # Language detection with smoothing
+        lang_config = LanguageDetectorConfig(
+            allowed_languages=allowed_languages,
+            min_confidence=language_min_confidence,
+        )
+        self._language_detector = LanguageDetector(lang_config)
+
     @property
     def debug_stats(self) -> dict[str, object]:
         """Get debug statistics for display."""
+        lang_stats = self._language_detector.stats
         return {
             "total_time": f"{self._total_audio_time:.1f}s",
             "buffer_time": f"{len(self._vad_buffer) / (self._sample_rate * 2):.2f}s",
             "speech_acc": f"{len(self._speech_accumulator) / (self._sample_rate * 2):.2f}s",
             "last_rms": f"{self._last_rms:.4f}",
             "speech": self._speech_detected,
+            "lang": lang_stats.get("current_language", "?"),
+            "lang_votes": lang_stats.get("recent_votes", {}),
         }
 
     def start(self) -> None:
@@ -385,6 +402,7 @@ class StreamingOrchestrator:
 
         speech_bytes = bytes(self._speech_accumulator)
         speech_start = self._speech_start_time
+        speech_duration = len(speech_bytes) / (self._sample_rate * 2)
 
         # Clear accumulator
         self._speech_accumulator.clear()
@@ -397,13 +415,33 @@ class StreamingOrchestrator:
         try:
             # Get transcription
             for segment in self._provider.transcribe_stream(audio_generator()):
-                # Adjust timestamps
+                # Apply language detection smoothing
+                # Use the language detector to get a stable language
+                raw_language = segment.language
+                raw_probability = getattr(segment, "language_probability", 0.0)
+
+                smoothed_language = self._language_detector.update(
+                    language=raw_language,
+                    probability=raw_probability,
+                    audio_duration=speech_duration,
+                )
+
+                # Use smoothed language, fall back to raw if None
+                final_language = smoothed_language or raw_language
+
+                logger.debug(
+                    f"Language: raw={raw_language} ({raw_probability:.2f}) "
+                    f"→ smoothed={final_language}"
+                )
+
+                # Adjust timestamps and apply smoothed language
                 adjusted_segment = StreamingSegment(
                     segment_id=segment.segment_id,
                     start=speech_start + segment.start,
                     end=speech_start + segment.end,
                     text=segment.text,
-                    language=segment.language,
+                    language=final_language,
+                    language_probability=raw_probability,
                     is_final=segment.is_final,
                     confidence=segment.confidence,
                 )
@@ -428,6 +466,8 @@ def create_streaming_transcriber(
     sample_rate: int = 16000,
     callback: StreamingCallback | None = None,
     audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
+    allowed_languages: list[str] | None = None,
+    language_min_confidence: float = 0.7,
 ) -> StreamingOrchestrator:
     """Create a streaming transcription orchestrator.
 
@@ -436,6 +476,10 @@ def create_streaming_transcriber(
         sample_rate: Audio sample rate.
         callback: Callback for segment updates.
         audio_callback: Optional callback for audio level monitoring.
+        allowed_languages: List of allowed language codes (e.g., ["fr", "en"]).
+            If specified, only these languages will be detected.
+        language_min_confidence: Minimum confidence (0-1) to accept a language
+            detection. Lower confidence detections use the previous language.
 
     Returns:
         Configured StreamingOrchestrator instance.
@@ -445,4 +489,6 @@ def create_streaming_transcriber(
         sample_rate=sample_rate,
         callback=callback,
         audio_callback=audio_callback,
+        allowed_languages=allowed_languages,
+        language_min_confidence=language_min_confidence,
     )

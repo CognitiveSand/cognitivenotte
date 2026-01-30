@@ -371,6 +371,7 @@ class FasterWhisperProvider(BaseSTTProvider):
                             end=time_offset + seg.end,
                             text=seg.text.strip(),
                             language=info.language,
+                            language_probability=info.language_probability,
                             is_final=True,
                             confidence=seg.avg_logprob if hasattr(seg, "avg_logprob") else 0.0,
                         )
@@ -404,6 +405,7 @@ class FasterWhisperProvider(BaseSTTProvider):
                         end=time_offset + seg.end,
                         text=seg.text.strip(),
                         language=info.language,
+                        language_probability=info.language_probability,
                         is_final=True,
                         confidence=seg.avg_logprob if hasattr(seg, "avg_logprob") else 0.0,
                     )

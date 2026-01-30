@@ -305,6 +305,13 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         if language == "auto":
             language = None  # None means auto-detect
 
+        # Parse allowed languages for improved auto-detection
+        allowed_languages: list[str] | None = None
+        languages_arg = getattr(args, "languages", None)
+        if languages_arg:
+            allowed_languages = [lang.strip() for lang in languages_arg.split(",")]
+            console.print(f"[dim]Allowed languages: {', '.join(allowed_languages)}[/dim]")
+
         # Create provider with language setting
         if provider_name is None or provider_name == "auto":
             # Try faster-whisper first
@@ -363,11 +370,13 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                 debug_view.update(audio_data=audio_data)  # type: ignore[arg-type]
 
         # Create streaming orchestrator (expects 16kHz audio)
+        # Pass allowed_languages for improved auto-detection when language is auto
         orchestrator = create_streaming_transcriber(
             provider=provider,
             sample_rate=stt_sample_rate,
             callback=on_segment,
             audio_callback=on_audio if debug_view else None,
+            allowed_languages=allowed_languages if language is None else None,
         )
 
         # Resampler for converting device sample rate to STT sample rate
@@ -631,6 +640,12 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["auto", "fr", "en", "de", "es", "it", "pt", "nl", "ja", "zh", "ko"],
         default="auto",
         help="Language code (default: auto-detect). Use 'fr' or 'en' for better accuracy.",
+    )
+    transcribe_parser.add_argument(
+        "--languages",
+        type=str,
+        help="Comma-separated list of allowed languages for auto-detect (e.g., 'fr,en'). "
+             "Improves accuracy by filtering out false detections of other languages.",
     )
     transcribe_parser.add_argument(
         "--device",
