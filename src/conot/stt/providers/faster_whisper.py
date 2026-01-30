@@ -41,6 +41,58 @@ COMPUTE_TYPES = {
 }
 
 
+_cuda_available: bool | None = None
+
+
+def _is_cuda_available() -> bool:
+    """Check if CUDA is actually available and functional.
+
+    Returns:
+        True if CUDA can be used, False otherwise.
+    """
+    global _cuda_available
+    if _cuda_available is not None:
+        return _cuda_available
+
+    # Try to actually use CUDA to verify it works
+    try:
+        import ctranslate2
+        import numpy as np
+
+        # Create a minimal model to test CUDA
+        # This will fail if CUDA libraries are missing
+        test_array = np.zeros((1, 80, 100), dtype=np.float32)
+        storage = ctranslate2.StorageView.from_array(test_array)
+        # If we get here without error, CUDA libraries are loadable
+        # But we still need to test actual CUDA device
+        del storage
+
+        # Try torch for actual CUDA test
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                x = torch.zeros(1, device="cuda")
+                del x
+                _cuda_available = True
+                logger.debug("CUDA is available (verified with torch)")
+                return True
+        except Exception as e:
+            logger.debug(f"CUDA torch test failed: {e}")
+
+    except Exception as e:
+        error_msg = str(e).lower()
+        if any(x in error_msg for x in ["cuda", "cublas", "cudnn", "nvrtc"]):
+            logger.info(f"CUDA libraries not available: {e}")
+            _cuda_available = False
+            return False
+        logger.debug(f"CUDA check error: {e}")
+
+    # Default to False if we couldn't verify CUDA works
+    _cuda_available = False
+    return False
+
+
 class FasterWhisperProvider(BaseSTTProvider):
     """STT provider using faster-whisper for GPU-accelerated transcription.
 
@@ -82,7 +134,10 @@ class FasterWhisperProvider(BaseSTTProvider):
 
         # Resolve device
         if self._device == "auto":
-            device = "cuda" if self._hardware.has_gpu else "cpu"
+            if self._hardware.has_gpu and _is_cuda_available():
+                device = "cuda"
+            else:
+                device = "cpu"
         else:
             device = self._device
 
@@ -125,6 +180,35 @@ class FasterWhisperProvider(BaseSTTProvider):
             self._model_loaded = True
             logger.info("Model loaded successfully")
         except Exception as e:
+            # Check if this is a CUDA library error and we can fall back to CPU
+            error_msg = str(e).lower()
+            cuda_errors = ["cuda", "cublas", "cudnn", "nvrtc", "gpu", "nvidia"]
+            is_cuda_error = any(err in error_msg for err in cuda_errors)
+
+            if is_cuda_error and device == "cuda" and self._device == "auto":
+                logger.warning(
+                    f"CUDA initialization failed: {e}. Falling back to CPU mode."
+                )
+                # Retry with CPU
+                device = "cpu"
+                compute_type = "int8"
+                logger.info(
+                    f"Loading faster-whisper model: {model_size} on {device} ({compute_type})"
+                )
+                try:
+                    self._model = WhisperModel(
+                        model_size,
+                        device=device,
+                        compute_type=compute_type,
+                    )
+                    self._model_loaded = True
+                    logger.info("Model loaded successfully (CPU fallback)")
+                    return
+                except Exception as e2:
+                    raise ModelNotFoundError(
+                        f"Failed to load model '{model_size}' (CPU fallback): {e2}"
+                    ) from e2
+
             raise ModelNotFoundError(f"Failed to load model '{model_size}': {e}") from e
 
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
