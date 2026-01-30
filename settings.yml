@@ -1,0 +1,22 @@
+# Conot Configuration
+# Copy this file to customize settings
+
+audio:
+  # Sample rate in Hz (44100 or 48000 recommended)
+  sample_rate: 48000
+  # Number of audio channels (1 = mono, 2 = stereo)
+  channels: 1
+  # Preferred device ID (null = auto-select)
+  device_id: null
+
+recording:
+  # Output directory for recordings
+  output_dir: "./recordings"
+  # Filename format (supports strftime placeholders)
+  filename_format: "recording_%Y%m%d_%H%M%S.wav"
+
+debug:
+  # Update interval for meters in seconds
+  meter_update_interval: 0.05
+  # Reference level for dB calculations
+  reference_db: -60.0
