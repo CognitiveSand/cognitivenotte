@@ -58,6 +58,14 @@ The conot system encompasses:
 
 High-level requirements expressing stakeholder needs.
 
+### 2.0 General
+
+| ID | Requirement | Priority | Source |
+|----|-------------|----------|--------|
+| STK-GEN-001 | System shall only use open-source libraries, tools, and models | Must | - |
+| STK-GEN-002 | All dependencies shall be freely available without commercial licensing | Must | STK-GEN-001 |
+| STK-GEN-003 | Models shall be usable without API keys or paid services | Must | STK-GEN-001 |
+
 ### 2.1 Sound Acquisition
 
 | ID | Requirement | Priority | Source |
@@ -210,20 +218,35 @@ Technical requirements derived from stakeholder needs.
 |----|------------|-----------|
 | CON-001 | Linux operating system only | Target user environment |
 | CON-002 | Python 3.12 or newer | Per conventions |
+| CON-003 | Open-source libraries only (OSI-approved licenses) | STK-GEN-001: No vendor lock-in, transparency |
+| CON-004 | Open-source models only (Apache 2.0, MIT, or equivalent) | STK-GEN-001: Free redistribution |
+| CON-005 | No cloud API dependencies for core functionality | STK-GEN-003: Offline operation, privacy |
+| CON-006 | No paid services or API keys required | STK-GEN-002: Free to use |
 
 ---
 
 ## 8. Dependencies
 
+**All dependencies must be open-source with OSI-approved licenses (CON-003).**
+
 ### 8.1 Core Dependencies
 
-| Dependency | Purpose | Version |
-|------------|---------|---------|
-| sounddevice | Audio device interface | >=0.5.0 |
-| numpy | Audio data processing | >=2.0.0 |
-| scipy | WAV file I/O | >=1.14.0 |
+| Dependency | Purpose | Version | License |
+|------------|---------|---------|---------|
+| sounddevice | Audio device interface | >=0.5.0 | MIT |
+| numpy | Audio data processing | >=2.0.0 | BSD |
+| scipy | WAV file I/O | >=1.14.0 | BSD |
 
-### 8.2 STT Provider Categories
+### 8.2 STT Dependencies
+
+| Dependency | Purpose | License |
+|------------|---------|---------|
+| faster-whisper | GPU-accelerated transcription | MIT |
+| whisper.cpp | CPU-optimized transcription | MIT |
+| pyannote-audio | Speaker diarization | MIT |
+| Whisper models | Speech recognition | MIT (OpenAI) |
+
+### 8.3 STT Provider Categories
 
 Providers are installed based on user configuration. The system supports:
 
@@ -235,9 +258,16 @@ Providers are installed based on user configuration. The system supports:
 
 Provider implementations are maintained separately from requirements to allow evolution.
 
-### 8.3 Optional Dependencies
+### 8.4 Model Requirements
 
-| Category | Purpose |
-|----------|---------|
-| GPU acceleration | CUDA/ROCm support when available |
-| Speaker diarization | Multi-speaker identification (post-MVP) |
+All models must be:
+- Open-source with permissive license (MIT, Apache 2.0, BSD)
+- Freely downloadable without API keys
+- Runnable locally without cloud dependencies
+
+| Model | Purpose | License | Source |
+|-------|---------|---------|--------|
+| Whisper (large-v3, medium, small, tiny) | Speech recognition | MIT | OpenAI/HuggingFace |
+| Pyannote speaker-diarization-3.1 | Speaker identification | MIT | HuggingFace |
+
+**Note**: HuggingFace token is required to download Pyannote models (free account), but models run locally after download.
