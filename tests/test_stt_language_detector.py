@@ -29,9 +29,10 @@ class TestLanguageDetectorConfig:
 
     def test_defaults(self):
         config = LanguageDetectorConfig()
-        assert config.min_confidence == 0.7
-        assert config.voting_window == 5
-        assert config.change_threshold == 0.6
+        assert config.min_confidence == 0.6
+        assert config.high_confidence == 0.75
+        assert config.voting_window == 3
+        assert config.change_threshold == 0.5
         assert config.allowed_languages is None
         assert config.initial_detection_duration == 5.0
 
@@ -87,14 +88,18 @@ class TestLanguageDetector:
 
     def test_voting_prevents_flip_flop(self):
         """Medium confidence detection shouldn't flip-flop without consensus."""
-        detector = LanguageDetector()
+        config = LanguageDetectorConfig(
+            voting_window=4,  # Need more votes to see effect
+            initial_detection_duration=0,
+        )
+        detector = LanguageDetector(config)
         # Build up French consensus
-        detector.update("fr", 0.90, audio_duration=2.0)
-        detector.update("fr", 0.88, audio_duration=2.0)
-        detector.update("fr", 0.92, audio_duration=2.0)
-        # Single MEDIUM-confidence English (below high_confidence=0.85) shouldn't change
-        result = detector.update("en", 0.78, audio_duration=2.0)
-        # Need 60% consensus to change, only have 1/4 = 25%
+        detector.update("fr", 0.80, audio_duration=2.0)
+        detector.update("fr", 0.78, audio_duration=2.0)
+        detector.update("fr", 0.82, audio_duration=2.0)
+        # Single MEDIUM-confidence English (below high_confidence=0.75) shouldn't change
+        result = detector.update("en", 0.68, audio_duration=2.0)
+        # Need 50% consensus to change, only have 1/4 = 25%
         assert result == "fr"
 
     def test_language_change_with_consensus(self):
@@ -161,9 +166,9 @@ class TestLanguageDetector:
         detector.set_language("en")
         assert detector.current_language == "en"
         assert detector.initial_detection_done
-        # Subsequent detections shouldn't override manual setting easily
-        result = detector.update("fr", 0.60, audio_duration=2.0)
-        assert result == "en"  # Low confidence, keep manual
+        # Subsequent low-confidence detections shouldn't override manual setting
+        result = detector.update("fr", 0.50, audio_duration=2.0)
+        assert result == "en"  # Low confidence (<0.6), keep manual
 
     def test_stats(self):
         """Stats should return useful debug info."""

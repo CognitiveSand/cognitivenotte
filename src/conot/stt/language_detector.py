@@ -24,16 +24,16 @@ class LanguageDetectorConfig:
     """Configuration for language detection behavior."""
 
     # Minimum probability to accept a detection
-    min_confidence: float = 0.7
+    min_confidence: float = 0.6
 
     # High confidence threshold - immediately switch if above this
-    high_confidence: float = 0.85
+    high_confidence: float = 0.75
 
     # Number of recent detections to consider for voting
-    voting_window: int = 5
+    voting_window: int = 3
 
-    # Minimum ratio of votes needed to change language (e.g., 0.6 = 60%)
-    change_threshold: float = 0.6
+    # Minimum ratio of votes needed to change language (e.g., 0.5 = 50%)
+    change_threshold: float = 0.5
 
     # If set, only these languages are allowed (e.g., ["fr", "en"])
     allowed_languages: list[str] | None = None
