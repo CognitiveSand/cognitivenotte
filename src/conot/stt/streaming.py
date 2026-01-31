@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
+import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -162,6 +165,8 @@ class StreamingOrchestrator:
         audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
         allowed_languages: list[str] | None = None,
         language_min_confidence: float = 0.7,
+        enable_diarization: bool = False,
+        diarization_interval_s: float = 15.0,
     ) -> None:
         """Initialize the streaming orchestrator.
 
@@ -175,6 +180,8 @@ class StreamingOrchestrator:
                 If specified, only these languages will be detected.
             language_min_confidence: Minimum confidence (0-1) to accept a language
                 detection. Lower confidence detections use the previous language.
+            enable_diarization: Whether to enable speaker diarization.
+            diarization_interval_s: How often to run diarization (seconds).
         """
         self._provider = provider
         self._vad = vad or create_vad(sample_rate=sample_rate)
@@ -210,11 +217,19 @@ class StreamingOrchestrator:
         )
         self._language_detector = LanguageDetector(lang_config)
 
+        # Diarization support
+        self._enable_diarization = enable_diarization
+        self._diarization_interval_s = diarization_interval_s
+        self._diarization_audio = bytearray()  # All audio for diarization
+        self._last_diarization_time = 0.0
+        self._speaker_map: dict[str, str] = {}  # Map pyannote IDs to "Speaker 1", etc.
+        self._diarizer: object | None = None
+
     @property
     def debug_stats(self) -> dict[str, object]:
         """Get debug statistics for display."""
         lang_stats = self._language_detector.stats
-        return {
+        stats = {
             "total_time": f"{self._total_audio_time:.1f}s",
             "buffer_time": f"{len(self._vad_buffer) / (self._sample_rate * 2):.2f}s",
             "speech_acc": f"{len(self._speech_accumulator) / (self._sample_rate * 2):.2f}s",
@@ -223,6 +238,113 @@ class StreamingOrchestrator:
             "lang": lang_stats.get("current_language", "?"),
             "lang_votes": lang_stats.get("recent_votes", {}),
         }
+        if self._enable_diarization:
+            stats["speakers"] = len(self._speaker_map)
+        return stats
+
+    def _get_speaker_label(self, pyannote_id: str) -> str:
+        """Convert Pyannote speaker ID to friendly label.
+
+        Args:
+            pyannote_id: Speaker ID from Pyannote (e.g., "SPEAKER_00").
+
+        Returns:
+            Friendly label like "Speaker 1".
+        """
+        if pyannote_id not in self._speaker_map:
+            speaker_num = len(self._speaker_map) + 1
+            self._speaker_map[pyannote_id] = f"Speaker {speaker_num}"
+        return self._speaker_map[pyannote_id]
+
+    def _run_diarization(self) -> None:
+        """Run diarization on accumulated audio and update segments."""
+        if not self._enable_diarization or len(self._diarization_audio) < self._sample_rate * 2:
+            return  # Not enough audio
+
+        try:
+            from conot.stt.diarization import SpeakerSegment, create_diarizer
+
+            # Initialize diarizer on first use
+            if self._diarizer is None:
+                self._diarizer = create_diarizer()
+                if not self._diarizer.is_available():
+                    logger.warning("Diarization not available (missing HF_TOKEN or pyannote)")
+                    self._enable_diarization = False
+                    return
+
+            # Save audio to temp file
+            import wave
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                temp_path = Path(f.name)
+
+            try:
+                with wave.open(str(temp_path), "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)  # int16
+                    wf.setframerate(self._sample_rate)
+                    wf.writeframes(bytes(self._diarization_audio))
+
+                # Run diarization
+                logger.info(f"Running diarization on {len(self._diarization_audio) / (self._sample_rate * 2):.1f}s audio")
+                speaker_segments: list[SpeakerSegment] = self._diarizer.diarize(temp_path)
+
+                # Update existing segments with speaker labels
+                self._update_segments_with_speakers(speaker_segments)
+
+            finally:
+                # Clean up temp file
+                if temp_path.exists():
+                    temp_path.unlink()
+
+        except Exception as e:
+            logger.warning(f"Diarization failed: {e}")
+
+    def _update_segments_with_speakers(self, speaker_segments: list) -> None:
+        """Update tracked segments with speaker labels from diarization.
+
+        Args:
+            speaker_segments: List of SpeakerSegment from diarization.
+        """
+        if not speaker_segments:
+            return
+
+        # Get all final segments
+        final_segments = self._tracker.get_final_segments()
+
+        for segment in final_segments:
+            # Find best matching speaker for this segment
+            best_speaker = "UNKNOWN"
+            best_overlap = 0.0
+
+            for spk_seg in speaker_segments:
+                overlap_start = max(segment.start, spk_seg.start)
+                overlap_end = min(segment.end, spk_seg.end)
+                overlap = max(0.0, overlap_end - overlap_start)
+
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = spk_seg.speaker
+
+            if best_speaker != "UNKNOWN":
+                # Update segment with friendly speaker label
+                friendly_label = self._get_speaker_label(best_speaker)
+                if segment.speaker != friendly_label:
+                    # Create updated segment and notify callback
+                    updated = StreamingSegment(
+                        segment_id=segment.segment_id,
+                        start=segment.start,
+                        end=segment.end,
+                        text=segment.text,
+                        language=segment.language,
+                        language_probability=segment.language_probability,
+                        is_final=True,
+                        confidence=segment.confidence,
+                        speaker=friendly_label,
+                    )
+                    self._tracker.update(updated)
+                    if self._callback:
+                        self._callback(updated)
 
     def start(self) -> None:
         """Start the streaming transcription pipeline."""
@@ -249,6 +371,11 @@ class StreamingOrchestrator:
 
         # Process any remaining audio
         self._process_remaining()
+
+        # Run final diarization on all accumulated audio
+        if self._enable_diarization:
+            logger.info("Running final diarization...")
+            self._run_diarization()
 
         logger.info("Streaming transcription stopped")
         return self._tracker.get_final_segments()
@@ -310,6 +437,16 @@ class StreamingOrchestrator:
                 # Update total audio time
                 chunk_duration = len(audio_bytes) / (self._sample_rate * 2)
                 self._total_audio_time += chunk_duration
+
+                # Accumulate for diarization (keep all audio)
+                if self._enable_diarization:
+                    self._diarization_audio.extend(audio_bytes)
+
+                    # Run diarization periodically
+                    time_since_diarization = self._total_audio_time - self._last_diarization_time
+                    if time_since_diarization >= self._diarization_interval_s:
+                        self._run_diarization()
+                        self._last_diarization_time = self._total_audio_time
 
                 # Accumulate for VAD check
                 self._vad_buffer.extend(audio_bytes)
@@ -468,6 +605,7 @@ def create_streaming_transcriber(
     audio_callback: Callable[[NDArray[np.float32]], None] | None = None,
     allowed_languages: list[str] | None = None,
     language_min_confidence: float = 0.7,
+    enable_diarization: bool = False,
 ) -> StreamingOrchestrator:
     """Create a streaming transcription orchestrator.
 
@@ -480,6 +618,7 @@ def create_streaming_transcriber(
             If specified, only these languages will be detected.
         language_min_confidence: Minimum confidence (0-1) to accept a language
             detection. Lower confidence detections use the previous language.
+        enable_diarization: Whether to enable speaker diarization.
 
     Returns:
         Configured StreamingOrchestrator instance.
@@ -491,4 +630,5 @@ def create_streaming_transcriber(
         audio_callback=audio_callback,
         allowed_languages=allowed_languages,
         language_min_confidence=language_min_confidence,
+        enable_diarization=enable_diarization,
     )

@@ -312,6 +312,11 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             allowed_languages = [lang.strip() for lang in languages_arg.split(",")]
             console.print(f"[dim]Allowed languages: {', '.join(allowed_languages)}[/dim]")
 
+        # Check if diarization is enabled (default: enabled)
+        enable_diarization = not getattr(args, "no_diarization", False)
+        if enable_diarization:
+            console.print("[dim]Speaker diarization enabled[/dim]")
+
         # Create provider with language setting
         if provider_name is None or provider_name == "auto":
             # Try faster-whisper first
@@ -377,6 +382,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             callback=on_segment,
             audio_callback=on_audio if debug_view else None,
             allowed_languages=allowed_languages if language is None else None,
+            enable_diarization=enable_diarization,
         )
 
         # Resampler for converting device sample rate to STT sample rate
