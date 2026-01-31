@@ -458,3 +458,13 @@ class FasterWhisperProvider(BaseSTTProvider):
             return True
         except ImportError:
             return False
+
+    def get_model_info(self) -> dict[str, str]:
+        """Get information about the current model."""
+        model_size, device, compute_type = self._resolve_settings()
+        return {
+            "name": model_size,
+            "provider": "faster-whisper",
+            "device": device,
+            "compute_type": compute_type,
+        }

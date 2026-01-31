@@ -73,3 +73,14 @@ class STTProvider(Protocol):
             True if the provider can be used, False otherwise.
         """
         ...
+
+    def get_model_info(self) -> dict[str, str]:
+        """Get information about the current model.
+
+        Returns:
+            Dictionary with model info:
+            - name: Model name (e.g., "large-v3", "medium")
+            - provider: Provider name (e.g., "faster-whisper")
+            - device: Compute device (e.g., "cuda", "cpu")
+        """
+        ...

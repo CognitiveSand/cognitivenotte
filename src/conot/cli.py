@@ -333,6 +333,23 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             from conot.stt.registry import get_provider
             provider = get_provider(provider_name)
 
+        # Display model info (SYS-STT-019)
+        if hasattr(provider, "get_model_info"):
+            model_info = provider.get_model_info()
+            console.print(
+                f"[bold]Model:[/bold] {model_info.get('name', 'unknown')} "
+                f"({model_info.get('provider', 'unknown')}) "
+                f"on {model_info.get('device', 'unknown')}"
+            )
+
+        # Setup transcript file (SYS-STT-020, SYS-STT-021, SYS-STT-023)
+        from datetime import datetime
+        transcripts_dir = Path("./transcripts")
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        transcript_path = transcripts_dir / f"transcript_{timestamp}.json"
+        console.print(f"[dim]Transcript: {transcript_path}[/dim]")
+
         # Setup debug view if requested
         debug_view: DebugView | None = None
         if use_debug:
@@ -347,6 +364,21 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         # Track languages detected
         languages_seen: set[str] = set()
 
+        def save_transcript() -> None:
+            """Save transcript incrementally (SYS-STT-022)."""
+            import json
+            transcript_data = {
+                "timestamp": timestamp,
+                "device": device.name,
+                "model": model_info if hasattr(provider, "get_model_info") else {},
+                "languages_detected": sorted(languages_seen),
+                "segments": [seg.to_dict() for seg in all_segments if seg.is_final],
+            }
+            transcript_path.write_text(
+                json.dumps(transcript_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
         def on_segment(segment: StreamingSegment) -> None:
             nonlocal segment_count
             all_segments.append(segment)
@@ -354,6 +386,10 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                 languages_seen.add(segment.language)
             if segment.is_final:
                 segment_count += 1
+
+                # Save transcript incrementally (SYS-STT-022)
+                save_transcript()
+
                 if debug_view:
                     # Add transcription to debug view
                     debug_view.add_transcription(
