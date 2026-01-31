@@ -91,6 +91,7 @@ High-level requirements expressing stakeholder needs.
 | STK-STT-008 | System shall display the model currently in use in the terminal | Must | - |
 | STK-STT-009 | Transcript files shall be stored in ./transcripts directory | Must | - |
 | STK-STT-010 | Transcripts shall be saved incrementally after each segment is added | Must | - |
+| STK-STT-011 | System shall support streaming JSON output to stdout for LLM integration | Must | - |
 
 ---
 
@@ -139,6 +140,9 @@ Technical requirements derived from stakeholder needs.
 | SYS-STT-021 | System shall create ./transcripts directory if it does not exist | Must | STK-STT-009 |
 | SYS-STT-022 | System shall save transcript file after each new segment is transcribed | Must | STK-STT-010 |
 | SYS-STT-023 | Transcript filename shall include timestamp for uniqueness | Must | STK-STT-009 |
+| SYS-STT-024 | System shall support --stdout flag for streaming JSON to stdout | Must | STK-STT-011 |
+| SYS-STT-025 | Each segment shall be output as a single JSON line (JSONL format) | Must | STK-STT-011 |
+| SYS-STT-026 | Stdout streaming shall be pipe-friendly (no decorations/colors) | Must | STK-STT-011 |
 
 ### 3.3 Development and Debugging
 

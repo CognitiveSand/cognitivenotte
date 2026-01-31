@@ -276,6 +276,13 @@ def _transcribe_live(args: argparse.Namespace) -> int:
     output_path = Path(args.output) if args.output else None
     device_id = args.device if hasattr(args, "device") else None
     use_debug = args.debug if hasattr(args, "debug") else False
+    use_stdout = args.stdout if hasattr(args, "stdout") else False
+
+    # In stdout mode, use stderr for status messages to keep stdout clean for JSONL
+    if use_stdout:
+        status_console = Console(stderr=True, force_terminal=False)
+    else:
+        status_console = console
 
     # Get audio device
     device = _get_audio_device(device_id)
@@ -310,12 +317,12 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         languages_arg = getattr(args, "languages", None)
         if languages_arg:
             allowed_languages = [lang.strip() for lang in languages_arg.split(",")]
-            console.print(f"[dim]Allowed languages: {', '.join(allowed_languages)}[/dim]")
+            status_console.print(f"[dim]Allowed languages: {', '.join(allowed_languages)}[/dim]")
 
         # Check if diarization is enabled (default: enabled)
         enable_diarization = not getattr(args, "no_diarization", False)
         if enable_diarization:
-            console.print("[dim]Speaker diarization enabled[/dim]")
+            status_console.print("[dim]Speaker diarization enabled[/dim]")
 
         # Create provider with language setting
         if provider_name is None or provider_name == "auto":
@@ -336,7 +343,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         # Display model info (SYS-STT-019)
         if hasattr(provider, "get_model_info"):
             model_info = provider.get_model_info()
-            console.print(
+            status_console.print(
                 f"[bold]Model:[/bold] {model_info.get('name', 'unknown')} "
                 f"({model_info.get('provider', 'unknown')}) "
                 f"on {model_info.get('device', 'unknown')}"
@@ -348,7 +355,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         transcript_path = transcripts_dir / f"transcript_{timestamp}.json"
-        console.print(f"[dim]Transcript: {transcript_path}[/dim]")
+        status_console.print(f"[dim]Transcript: {transcript_path}[/dim]")
 
         # Setup debug view if requested
         debug_view: DebugView | None = None
@@ -390,7 +397,12 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                 # Save transcript incrementally (SYS-STT-022)
                 save_transcript()
 
-                if debug_view:
+                # Stdout mode: output JSONL (SYS-STT-024, SYS-STT-025, SYS-STT-026)
+                if use_stdout:
+                    segment_json = json.dumps(segment.to_dict(), ensure_ascii=False)
+                    sys.stdout.write(segment_json + "\n")
+                    sys.stdout.flush()
+                elif debug_view:
                     # Add transcription to debug view
                     debug_view.add_transcription(
                         text=segment.text,
@@ -404,7 +416,7 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                     # Format: [speaker] [lang] text
                     speaker_prefix = f"[cyan][{segment.speaker}][/cyan] " if segment.speaker else ""
                     lang_tag = f"[dim]({segment.language})[/dim] " if segment.language else ""
-                    console.print(f"{speaker_prefix}{lang_tag}{segment.text}")
+                    status_console.print(f"{speaker_prefix}{lang_tag}{segment.text}")
 
         def on_audio(audio_data: object) -> None:
             if debug_view:
@@ -460,9 +472,9 @@ def _transcribe_live(args: argparse.Namespace) -> int:
             blocksize=chunk_size,
         )
 
-        console.print(f"[bold]Live transcription[/bold]")
-        console.print(f"[dim]Device: {device.name}[/dim]")
-        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+        status_console.print(f"[bold]Live transcription[/bold]")
+        status_console.print(f"[dim]Device: {device.name}[/dim]")
+        status_console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
         # Start everything
         orchestrator.start()
@@ -485,11 +497,11 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                     )
                     debug_view.update(duration=time.time() - start_time, extra_info=info)
         else:
-            console.print("[green]● Listening...[/green]\n")
+            status_console.print("[green]● Listening...[/green]\n")
             while not sig_handler.stop_requested:
                 time.sleep(0.1)
 
-        console.print("\n[yellow]Stopping...[/yellow]")
+        status_console.print("\n[yellow]Stopping...[/yellow]")
 
         # Stop audio stream
         stream.stop()
@@ -519,18 +531,18 @@ def _transcribe_live(args: argparse.Namespace) -> int:
                 json.dumps(output_data, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-            console.print(f"\n[green]✓ Saved:[/green] {output_path}")
+            status_console.print(f"\n[green]✓ Saved:[/green] {output_path}")
 
         # Summary
         lang_summary = ", ".join(sorted(languages_seen)) if languages_seen else "unknown"
-        console.print(f"\n[dim]Total segments: {len(final_segments)} | Languages: {lang_summary}[/dim]")
+        status_console.print(f"\n[dim]Total segments: {len(final_segments)} | Languages: {lang_summary}[/dim]")
         return 0
 
     except STTError as e:
-        console.print(f"[red]Transcription error:[/red] {e}")
+        status_console.print(f"[red]Transcription error:[/red] {e}")
         return 1
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        status_console.print(f"[red]Error:[/red] {e}")
         return 1
 
 
@@ -699,6 +711,11 @@ def create_parser() -> argparse.ArgumentParser:
         "-d",
         action="store_true",
         help="Show debug information",
+    )
+    transcribe_parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Stream JSON segments to stdout (JSONL format, pipe-friendly)",
     )
     transcribe_parser.set_defaults(func=cmd_transcribe)
 
