@@ -88,6 +88,9 @@ High-level requirements expressing stakeholder needs.
 | STK-STT-005 | Transcription shall include word-level timestamps | Should | US-02 |
 | STK-STT-006 | Transcription shall work without internet connection | Should | US-02 |
 | STK-STT-007 | System shall identify different speakers in a recording (diarization) | Must | US-02 |
+| STK-STT-008 | System shall display the model currently in use in the terminal | Must | - |
+| STK-STT-009 | Transcript files shall be stored in ./transcripts directory | Must | - |
+| STK-STT-010 | Transcripts shall be saved incrementally after each segment is added | Must | - |
 
 ---
 
@@ -131,6 +134,11 @@ Technical requirements derived from stakeholder needs.
 | SYS-STT-016 | System shall auto-detect available system RAM | Must | SYS-STT-007 |
 | SYS-STT-017 | System shall auto-select best provider based on detected hardware | Must | SYS-STT-011 |
 | SYS-STT-018 | System shall work without any user configuration | Must | STK-STT-006 |
+| SYS-STT-019 | System shall display the active model name in terminal/debug view | Must | STK-STT-008 |
+| SYS-STT-020 | System shall store transcript files in ./transcripts directory | Must | STK-STT-009 |
+| SYS-STT-021 | System shall create ./transcripts directory if it does not exist | Must | STK-STT-009 |
+| SYS-STT-022 | System shall save transcript file after each new segment is transcribed | Must | STK-STT-010 |
+| SYS-STT-023 | Transcript filename shall include timestamp for uniqueness | Must | STK-STT-009 |
 
 ### 3.3 Development and Debugging
 
@@ -155,6 +163,7 @@ Technical requirements derived from stakeholder needs.
 | stt.device | Compute device (auto/cuda/cpu) | auto | SYS-STT-007, SYS-STT-008 |
 | stt.language | Language hint (auto/fr/en) | auto | SYS-STT-004 |
 | stt.diarization | Enable speaker diarization | false | SYS-STT-009 |
+| transcripts_dir | Directory where transcripts are saved | ./transcripts | SYS-STT-020 |
 
 ---
 
