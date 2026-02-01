@@ -4,8 +4,8 @@
 |-------|-------|
 | **Project** | conot |
 | **Version** | 0.1 |
-| **Date** | 2026-01-30 |
-| **Status** | Draft |
+| **Date** | 2026-02-01 |
+| **Status** | Implemented |
 | **Reference** | |
 
 ---
@@ -215,13 +215,20 @@ Technical requirements derived from stakeholder needs.
 | STK-ACQ-004 | SYS-ACQ-002, SYS-ACQ-003, SYS-ACQ-004 | Implemented |
 | STK-ACQ-005 | - | Implemented |
 | STK-ACQ-006 | SYS-ACQ-002 | Implemented |
-| STK-STT-001 | SYS-STT-001, SYS-STT-006 | Draft |
-| STK-STT-002 | SYS-STT-002 | Draft |
-| STK-STT-003 | SYS-STT-003 | Draft |
-| STK-STT-004 | SYS-STT-004 | Draft |
-| STK-STT-005 | SYS-STT-005 | Draft |
-| STK-STT-006 | SYS-STT-001, SYS-STT-007, SYS-STT-018 | Draft |
-| STK-STT-007 | SYS-STT-009 | Draft |
+| STK-STT-001 | SYS-STT-001, SYS-STT-006 | Implemented |
+| STK-STT-002 | SYS-STT-002 | Implemented |
+| STK-STT-003 | SYS-STT-003 | Implemented |
+| STK-STT-004 | SYS-STT-004 | Implemented |
+| STK-STT-005 | SYS-STT-005 | Implemented |
+| STK-STT-006 | SYS-STT-001, SYS-STT-007, SYS-STT-018 | Implemented |
+| STK-STT-007 | SYS-STT-009 | Implemented |
+| STK-STT-008 | SYS-STT-019 | Implemented |
+| STK-STT-009 | SYS-STT-020, SYS-STT-021, SYS-STT-023 | Implemented |
+| STK-STT-010 | SYS-STT-022 | Implemented |
+| STK-STT-011 | SYS-STT-024, SYS-STT-025, SYS-STT-026 | Implemented |
+| STK-GEN-001 | CON-003, CON-004 | Implemented |
+| STK-GEN-002 | CON-006 | Implemented |
+| STK-GEN-003 | CON-005 | Implemented |
 
 ---
 
