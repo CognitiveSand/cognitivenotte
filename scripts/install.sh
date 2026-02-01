@@ -1,7 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Conot Installation Script
 # Installs conot with optional STT providers
 # Idempotent: safe to run multiple times
+#
+# NOTE: This script requires bash (not sh/dash)
+# Run with: bash ./scripts/install.sh
+#       or: ./scripts/install.sh (if executable)
+
+# Ensure we're running in bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "Error: This script requires bash. Please run with:"
+    echo "  bash $0"
+    exit 1
+fi
 
 set -e
 
@@ -19,19 +30,12 @@ echo
 find_uv() {
     # Check if uv is in PATH
     if command -v uv &> /dev/null; then
-        echo "$(command -v uv)"
+        command -v uv
         return 0
     fi
 
     # Check common install locations
-    local locations=(
-        "$HOME/.local/bin/uv"
-        "$HOME/.cargo/bin/uv"
-        "/usr/local/bin/uv"
-        "/usr/bin/uv"
-    )
-
-    for loc in "${locations[@]}"; do
+    for loc in "$HOME/.local/bin/uv" "$HOME/.cargo/bin/uv" "/usr/local/bin/uv" "/usr/bin/uv"; do
         if [ -x "$loc" ]; then
             echo "$loc"
             return 0
