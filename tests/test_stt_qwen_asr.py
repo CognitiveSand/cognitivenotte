@@ -214,20 +214,21 @@ class TestQwenASRRegistration:
         providers = get_registered_providers()
         assert "qwen-asr" in providers
 
-    def test_provider_accuracy_rank(self):
-        """Test that qwen-asr has highest accuracy rank."""
-        from conot.stt.registry import PROVIDER_ACCURACY_RANK
+    def test_provider_preference_rank(self):
+        """Test that faster-whisper is preferred by default."""
+        from conot.stt.registry import PROVIDER_PREFERENCE_RANK
 
-        assert "qwen-asr" in PROVIDER_ACCURACY_RANK
-        assert PROVIDER_ACCURACY_RANK["qwen-asr"] == 1
-        assert PROVIDER_ACCURACY_RANK["faster-whisper"] > PROVIDER_ACCURACY_RANK["qwen-asr"]
+        assert "qwen-asr" in PROVIDER_PREFERENCE_RANK
+        assert "faster-whisper" in PROVIDER_PREFERENCE_RANK
+        # faster-whisper should be preferred (lower rank = more preferred)
+        assert PROVIDER_PREFERENCE_RANK["faster-whisper"] < PROVIDER_PREFERENCE_RANK["qwen-asr"]
 
-    def test_providers_sorted_by_accuracy(self):
-        """Test that providers are sorted by accuracy in tier selection."""
+    def test_providers_sorted_by_preference(self):
+        """Test that providers are sorted by preference in tier selection."""
         from conot.stt.registry import _get_providers_for_tier
         from conot.stt.models import ProviderTier
 
         providers = _get_providers_for_tier(ProviderTier.ENTERPRISE)
-        # qwen-asr should be first if registered
-        if "qwen-asr" in providers:
-            assert providers[0] == "qwen-asr"
+        # faster-whisper should be first (preferred by default)
+        if "faster-whisper" in providers:
+            assert providers[0] == "faster-whisper"

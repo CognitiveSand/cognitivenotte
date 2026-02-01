@@ -18,12 +18,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Provider accuracy ranking (lower WER = higher priority)
-# qwen-asr: ~5-6% WER, faster-whisper/whisper-cpp: ~7.4% WER
-PROVIDER_ACCURACY_RANK = {
-    "qwen-asr": 1,  # ~5-6% WER - most accurate
-    "faster-whisper": 2,  # ~7.4% WER
-    "whisper-cpp": 3,  # ~7.4% WER (same model, slower)
+# Provider preference ranking for auto-selection
+# faster-whisper is preferred by default as the most stable/tested option
+# qwen-asr should be explicitly selected via --provider qwen-asr or settings.yml
+PROVIDER_PREFERENCE_RANK = {
+    "faster-whisper": 1,  # Default choice - stable, well-tested
+    "whisper-cpp": 2,  # CPU fallback
+    "qwen-asr": 3,  # Higher accuracy but requires explicit selection
 }
 
 # Registry of provider classes by name
@@ -165,21 +166,21 @@ def auto_select_provider(
 
 
 def _get_providers_for_tier(tier: ProviderTier) -> list[str]:
-    """Get provider names compatible with a tier, ordered by accuracy preference.
+    """Get provider names compatible with a tier, ordered by preference.
 
-    Selection priority (SYS-STT-027):
+    Selection priority:
     1. Filter providers compatible with hardware tier
-    2. Sort by accuracy rank (qwen-asr > faster-whisper > whisper-cpp)
-    3. Return in accuracy order
+    2. Sort by preference rank (faster-whisper > whisper-cpp > qwen-asr)
 
-    This ensures users always get the most accurate transcription
-    their hardware can support.
+    faster-whisper is preferred by default as the most stable option.
+    Users who want qwen-asr's higher accuracy should explicitly select it
+    via --provider qwen-asr or settings.yml.
 
     Args:
         tier: The hardware tier.
 
     Returns:
-        List of provider names, most accurate first.
+        List of provider names, preferred first.
     """
     compatible: list[str] = []
 
@@ -188,8 +189,8 @@ def _get_providers_for_tier(tier: ProviderTier) -> list[str]:
         if tier in _PROVIDER_TIERS.get(name, []):
             compatible.append(name)
 
-    # Sort by accuracy rank (lower rank = better accuracy)
-    compatible.sort(key=lambda p: PROVIDER_ACCURACY_RANK.get(p, 99))
+    # Sort by preference rank (lower = more preferred)
+    compatible.sort(key=lambda p: PROVIDER_PREFERENCE_RANK.get(p, 99))
 
     return compatible
 

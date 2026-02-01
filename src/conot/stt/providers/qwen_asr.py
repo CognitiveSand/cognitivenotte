@@ -475,12 +475,24 @@ class QwenASRProvider(BaseSTTProvider):
         )
 
     def is_available(self) -> bool:
-        """Check if qwen-asr is installed and functional."""
+        """Check if qwen-asr is installed and functional.
+
+        Performs thorough check to ensure the model class can be imported,
+        not just the package. This prevents auto-selection of qwen-asr
+        when only the package stub is installed without full dependencies.
+        """
         try:
-            import qwen_asr  # noqa: F401
+            # Check that the actual model class can be imported
+            from qwen_asr import Qwen3ASRModel  # noqa: F401
+
+            # Verify torch is available (required for model loading)
+            import torch  # noqa: F401
 
             return True
         except ImportError:
+            return False
+        except Exception:
+            # Any other error means it's not properly installed
             return False
 
     def get_model_info(self) -> dict[str, str]:
