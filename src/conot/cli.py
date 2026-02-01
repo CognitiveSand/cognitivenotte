@@ -326,16 +326,18 @@ def _transcribe_live(args: argparse.Namespace) -> int:
 
         # Create provider with language setting
         if provider_name is None or provider_name == "auto":
-            # Try faster-whisper first
-            try:
-                from conot.stt.providers.faster_whisper import FasterWhisperProvider
-                provider = FasterWhisperProvider(language=language)
-            except ImportError:
-                from conot.stt.registry import get_provider
-                provider = get_provider(provider_name)
+            # Use auto-selection (prefers most accurate provider)
+            from conot.stt.registry import get_provider
+            provider = get_provider(provider_name)
+            # Set language on provider if supported
+            if hasattr(provider, "_language"):
+                provider._language = language
         elif provider_name == "faster-whisper":
             from conot.stt.providers.faster_whisper import FasterWhisperProvider
             provider = FasterWhisperProvider(language=language)
+        elif provider_name == "qwen-asr":
+            from conot.stt.providers.qwen_asr import QwenASRProvider
+            provider = QwenASRProvider(language=language)
         else:
             from conot.stt.registry import get_provider
             provider = get_provider(provider_name)
@@ -672,9 +674,9 @@ def create_parser() -> argparse.ArgumentParser:
     )
     transcribe_parser.add_argument(
         "--provider",
-        choices=["auto", "faster-whisper", "whisper-cpp"],
+        choices=["auto", "faster-whisper", "whisper-cpp", "qwen-asr"],
         default="auto",
-        help="STT provider (default: auto)",
+        help="STT provider (default: auto, prefers most accurate for hardware)",
     )
     transcribe_parser.add_argument(
         "--compute-device",

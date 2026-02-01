@@ -50,6 +50,23 @@ uv sync --extra stt-gpu
 pip install -e ".[stt-gpu]"
 ```
 
+### With Qwen3-ASR (Most Accurate)
+
+Qwen3-ASR achieves ~30% better word error rate than Whisper for French and English:
+
+```bash
+# Install Qwen3-ASR support
+uv sync --extra stt-qwen
+
+# Or with pip
+pip install -e ".[stt-qwen]"
+
+# For faster inference with vLLM backend
+uv sync --extra stt-qwen-fast
+```
+
+**Note:** Qwen3-ASR requires ~4GB GPU memory for the 0.6B model or ~8GB for the 1.7B model.
+
 ### With Speaker Diarization
 
 To identify different speakers in recordings:
@@ -209,12 +226,17 @@ recording:
   filename_format: "recording_%Y%m%d_%H%M%S.wav"
 
 stt:
-  provider: auto              # auto | faster-whisper | whisper-cpp
+  provider: auto              # auto | faster-whisper | whisper-cpp | qwen-asr
   device: auto                # auto | cuda | cpu
   language: auto              # auto | fr | en
   diarization: true           # Enable speaker identification
-  model_size: auto            # auto | large-v3 | medium | small | tiny
+  model_size: auto            # auto | large-v3 | medium | small | tiny (or 1.7B/0.6B for qwen)
   huggingface_token: null     # For pyannote diarization
+
+  # Qwen3-ASR specific settings
+  qwen:
+    use_vllm: false           # Use vLLM backend for faster inference
+    use_forced_aligner: false # Enable word-level timestamps
 
 debug:
   meter_update_interval: 0.05 # Seconds between meter updates
@@ -356,5 +378,6 @@ MIT License - See LICENSE file for details.
 
 - [OpenAI Whisper](https://github.com/openai/whisper) - Speech recognition model
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) - CTranslate2 acceleration
+- [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) - High-accuracy ASR from Alibaba
 - [pyannote-audio](https://github.com/pyannote/pyannote-audio) - Speaker diarization
 - [sounddevice](https://python-sounddevice.readthedocs.io/) - Audio I/O

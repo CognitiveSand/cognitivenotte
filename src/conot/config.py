@@ -37,6 +37,14 @@ class DebugConfig(BaseModel):
     reference_db: float = Field(default=-60.0, ge=-100.0, le=0.0)
 
 
+class QwenConfig(BaseModel):
+    """Qwen3-ASR specific configuration."""
+
+    use_vllm: bool = Field(default=False)
+    use_forced_aligner: bool = Field(default=False)
+    gpu_memory_utilization: float = Field(default=0.7, ge=0.1, le=1.0)
+
+
 class STTConfig(BaseModel):
     """Speech-to-text configuration."""
 
@@ -50,6 +58,7 @@ class STTConfig(BaseModel):
     min_speech_duration_ms: int = Field(default=250, ge=50, le=5000)
     max_speech_duration_s: float = Field(default=30.0, ge=1.0, le=300.0)
     huggingface_token: str | None = Field(default=None)
+    qwen: QwenConfig = Field(default_factory=QwenConfig)
 
 
 class Settings(BaseModel):

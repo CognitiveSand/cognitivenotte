@@ -143,6 +143,7 @@ Technical requirements derived from stakeholder needs.
 | SYS-STT-024 | System shall support --stdout flag for streaming JSON to stdout | Must | STK-STT-011 |
 | SYS-STT-025 | Each segment shall be output as a single JSON line (JSONL format) | Must | STK-STT-011 |
 | SYS-STT-026 | Stdout streaming shall be pipe-friendly (no decorations/colors) | Must | STK-STT-011 |
+| SYS-STT-027 | System shall auto-select the most accurate provider that hardware supports | Must | SYS-STT-017 |
 
 ### 3.3 Development and Debugging
 
@@ -263,8 +264,10 @@ Technical requirements derived from stakeholder needs.
 |------------|---------|---------|
 | faster-whisper | GPU-accelerated transcription | MIT |
 | whisper.cpp | CPU-optimized transcription | MIT |
+| qwen-asr | High-accuracy transcription (~30% better WER) | Apache 2.0 |
 | pyannote-audio | Speaker diarization | MIT |
 | Whisper models | Speech recognition | MIT (OpenAI) |
+| Qwen3-ASR models | High-accuracy speech recognition | Apache 2.0 (Alibaba) |
 
 ### 8.3 STT Provider Categories
 
@@ -288,6 +291,7 @@ All models must be:
 | Model | Purpose | License | Source |
 |-------|---------|---------|--------|
 | Whisper (large-v3, medium, small, tiny) | Speech recognition | MIT | OpenAI/HuggingFace |
+| Qwen3-ASR (1.7B, 0.6B) | High-accuracy speech recognition | Apache 2.0 | Alibaba/HuggingFace |
 | Pyannote speaker-diarization-3.1 | Speaker identification | MIT | HuggingFace |
 
 **Note**: HuggingFace token is required to download Pyannote models (free account), but models run locally after download.

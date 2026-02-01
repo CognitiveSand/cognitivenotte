@@ -18,6 +18,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Provider accuracy ranking (lower WER = higher priority)
+# qwen-asr: ~5-6% WER, faster-whisper/whisper-cpp: ~7.4% WER
+PROVIDER_ACCURACY_RANK = {
+    "qwen-asr": 1,  # ~5-6% WER - most accurate
+    "faster-whisper": 2,  # ~7.4% WER
+    "whisper-cpp": 3,  # ~7.4% WER (same model, slower)
+}
+
 # Registry of provider classes by name
 _PROVIDERS: dict[str, type[STTProvider]] = {}
 
@@ -157,40 +165,49 @@ def auto_select_provider(
 
 
 def _get_providers_for_tier(tier: ProviderTier) -> list[str]:
-    """Get provider names compatible with a tier, ordered by preference.
+    """Get provider names compatible with a tier, ordered by accuracy preference.
+
+    Selection priority (SYS-STT-027):
+    1. Filter providers compatible with hardware tier
+    2. Sort by accuracy rank (qwen-asr > faster-whisper > whisper-cpp)
+    3. Return in accuracy order
+
+    This ensures users always get the most accurate transcription
+    their hardware can support.
 
     Args:
         tier: The hardware tier.
 
     Returns:
-        List of provider names, best choices first.
+        List of provider names, most accurate first.
     """
     compatible: list[str] = []
 
-    # Priority order for each tier
-    if tier == ProviderTier.ENTERPRISE:
-        # Prefer GPU-accelerated providers
-        priority = ["faster-whisper", "whisper-cpp"]
-    elif tier == ProviderTier.STANDARD:
-        priority = ["faster-whisper", "whisper-cpp"]
-    else:  # EDGE
-        # Prefer CPU-optimized providers
-        priority = ["whisper-cpp", "faster-whisper"]
-
-    for name in priority:
-        if name in _PROVIDERS and tier in _PROVIDER_TIERS.get(name, []):
-            compatible.append(name)
-
-    # Add any other registered providers
+    # Get all providers compatible with this tier
     for name in _PROVIDERS:
-        if name not in compatible and tier in _PROVIDER_TIERS.get(name, []):
+        if tier in _PROVIDER_TIERS.get(name, []):
             compatible.append(name)
+
+    # Sort by accuracy rank (lower rank = better accuracy)
+    compatible.sort(key=lambda p: PROVIDER_ACCURACY_RANK.get(p, 99))
 
     return compatible
 
 
 def _register_builtin_providers() -> None:
     """Register built-in providers. Called on module import."""
+    # Import and register qwen-asr provider (highest accuracy)
+    try:
+        from conot.stt.providers.qwen_asr import QwenASRProvider
+
+        register_provider(
+            "qwen-asr",
+            QwenASRProvider,
+            [ProviderTier.ENTERPRISE, ProviderTier.STANDARD, ProviderTier.EDGE],
+        )
+    except ImportError:
+        logger.debug("qwen-asr provider not available")
+
     # Import and register faster-whisper provider
     try:
         from conot.stt.providers.faster_whisper import FasterWhisperProvider

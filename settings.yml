@@ -22,17 +22,19 @@ debug:
   reference_db: -60.0
 
 stt:
-  # STT provider: auto | faster-whisper | whisper-cpp
+  # STT provider: auto | faster-whisper | whisper-cpp | qwen-asr
+  # When "auto", selects most accurate provider for detected hardware
   provider: auto
   # Compute device: auto | cuda | cpu
   device: auto
-  # Primary language: auto | fr | en
+  # Primary language: auto | fr | en | ...
   language: auto
   # Enable speaker diarization
   diarization: true
   # Model size: auto | large-v3 | medium | small | tiny
+  # For qwen-asr: auto | 1.7B | 0.6B
   model_size: auto
-  # Compute precision: auto | float16 | int8 | float32
+  # Compute precision: auto | float16 | bfloat16 | int8 | float32
   compute_type: auto
   # Voice activity detection threshold (0.0 - 1.0)
   vad_threshold: 0.5
@@ -42,3 +44,12 @@ stt:
   max_speech_duration_s: 30.0
   # HuggingFace token for pyannote diarization (or set HF_TOKEN env var)
   huggingface_token: null
+
+  # Qwen3-ASR specific settings
+  qwen:
+    # Use vLLM backend for faster inference (requires vllm installed)
+    use_vllm: false
+    # Enable word-level timestamps via ForcedAligner (batch mode only)
+    use_forced_aligner: false
+    # GPU memory utilization for vLLM (0.0-1.0)
+    gpu_memory_utilization: 0.7

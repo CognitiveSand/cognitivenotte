@@ -3,7 +3,7 @@ name = "conot"
 version = "0.1.0"
 description = "Sound acquisition pipeline for cognitive note-taking"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "sounddevice>=0.5.0",
     "numpy>=2.0.0",
@@ -40,12 +40,19 @@ stt-diarization = [
 stt-vad = [
     "torch>=2.0.0",  # For Silero VAD
 ]
+stt-qwen = [
+    "qwen-asr>=0.0.6",
+    "torch>=2.0.0",
+]
+stt-qwen-fast = [
+    "qwen-asr[vllm]>=0.0.6",
+]
 # Convenience: install all STT dependencies
 stt = [
     "conot[stt-gpu,stt-diarization,stt-vad]",
 ]
 stt-full = [
-    "conot[stt-gpu,stt-cpu,stt-diarization,stt-vad]",
+    "conot[stt-gpu,stt-cpu,stt-qwen,stt-diarization,stt-vad]",
 ]
 
 [project.scripts]
