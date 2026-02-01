@@ -94,7 +94,7 @@ High-level requirements expressing stakeholder needs.
 | STK-STT-011 | System shall support streaming JSON output to stdout for LLM integration | Must | - |
 | STK-STT-012 | Default mode shall capture audio from microphone and perform real-time streaming transcription | Must | - |
 | STK-STT-013 | Real-time transcription shall display each line with timestamp, language, and speaker prefix | Must | STK-STT-012 |
-| STK-STT-014 | Transcription display shall update in real-time as speech is recognized | Must | STK-STT-012 |
+| STK-STT-014 | Transcription shall appear fluidly in real-time (<2s latency from speech start) | Must | STK-STT-012 |
 
 ---
 
@@ -149,7 +149,7 @@ Technical requirements derived from stakeholder needs.
 | SYS-STT-027 | System shall auto-select the most accurate provider that hardware supports | Must | SYS-STT-017 |
 | SYS-STT-028 | Default CLI command shall start live transcription from microphone | Must | STK-STT-012 |
 | SYS-STT-029 | Each transcribed segment shall display format: [HH:MM:SS] (lang) [Speaker] text | Must | STK-STT-013 |
-| SYS-STT-030 | Transcription shall stream to display within 2 seconds of speech end | Should | STK-STT-014 |
+| SYS-STT-030 | Transcription shall stream to display within 2 seconds of speech start (fluid real-time) | Must | STK-STT-014 |
 | SYS-STT-031 | Display shall show timestamp at start of each segment | Must | STK-STT-013 |
 | SYS-STT-032 | Display shall show detected language code for each segment | Must | STK-STT-013 |
 | SYS-STT-033 | Display shall show speaker identifier when diarization is available | Must | STK-STT-013 |
